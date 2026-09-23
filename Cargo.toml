@@ -1,7 +1,10 @@
+[workspace]
+members = ["bitbabel-core"]
+
 [package]
 name = "bitbabel"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-blake3 = "1.8.7"
+bitbabel-core = { path = "bitbabel-core" }
