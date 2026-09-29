@@ -1,4 +1,5 @@
 use crate::cipher::{BabelMachine, FeistelBytes};
+use crate::config::LibraryConfig;
 use crate::error::LibraryError;
 use crate::index::PageIndex;
 use crate::page::Page;
@@ -23,6 +24,26 @@ impl BabelLibrary {
         } else {
             Ok(BabelLibrary { machine, page_len })
         }
+    }
+
+    /// A library shaped by `config`, mapped with `key`. Use this for a private library.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LibraryError::InvalidPageLen`] unless `config.page_len()` is even and
+    /// non-zero, or [`LibraryError::Cipher`] if `config.rounds()` is zero.
+    pub fn from_config(config: LibraryConfig, key: [u8; 32]) -> Result<Self, LibraryError> {
+        Self::new(BabelMachine::new(key, config.rounds())?, config.page_len())
+    }
+
+    /// The shared library for `config`, using [`LibraryConfig::canonical_key`]: everyone who
+    /// builds the same configuration sees the same pages.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`from_config`](Self::from_config).
+    pub fn canonical(config: LibraryConfig) -> Result<Self, LibraryError> {
+        Self::from_config(config, config.canonical_key())
     }
 
     pub fn page_len(&self) -> usize {
