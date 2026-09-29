@@ -3,6 +3,7 @@ use std::convert::Infallible;
 use super::Encoding;
 
 /// Lossy UTF-8 text view of arbitrary bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Utf8;
 
 impl Encoding for Utf8 {
@@ -19,6 +20,7 @@ impl Encoding for Utf8 {
 }
 
 /// Lossy little-endian UTF-16 text view of arbitrary bytes. A trailing odd byte is dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Utf16Le;
 
 impl Encoding for Utf16Le {
@@ -28,7 +30,8 @@ impl Encoding for Utf16Le {
     fn encode(bytes: &[u8]) -> Self::Output {
         let units: Vec<u16> = bytes
             .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .filter_map(|pair| <[u8; 2]>::try_from(pair).ok())
+            .map(u16::from_le_bytes)
             .collect();
         String::from_utf16_lossy(&units)
     }
@@ -39,6 +42,7 @@ impl Encoding for Utf16Le {
 }
 
 /// Lossy big-endian UTF-16 text view of arbitrary bytes. A trailing odd byte is dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Utf16Be;
 
 impl Encoding for Utf16Be {
@@ -48,7 +52,8 @@ impl Encoding for Utf16Be {
     fn encode(bytes: &[u8]) -> Self::Output {
         let units: Vec<u16> = bytes
             .chunks_exact(2)
-            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .filter_map(|pair| <[u8; 2]>::try_from(pair).ok())
+            .map(u16::from_be_bytes)
             .collect();
         String::from_utf16_lossy(&units)
     }
@@ -99,6 +104,9 @@ mod test {
     #[test]
     fn le_and_be_bytes_are_distinct_for_non_ascii() {
         let text = "\u{1234}".to_string();
-        assert_ne!(Utf16Le::decode(&text).unwrap(), Utf16Be::decode(&text).unwrap());
+        assert_ne!(
+            Utf16Le::decode(&text).unwrap(),
+            Utf16Be::decode(&text).unwrap()
+        );
     }
 }

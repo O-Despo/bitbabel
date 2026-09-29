@@ -6,7 +6,7 @@ mod text;
 pub use base64::{Base64, Base64DecodeError};
 pub use hex::{Hex, HexDecodeError};
 pub use raw::Raw;
-pub use text::{Utf16Be, Utf16Le, Utf8};
+pub use text::{Utf8, Utf16Be, Utf16Le};
 
 /// Converts babel bytes to and from another representation.
 ///

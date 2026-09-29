@@ -1,12 +1,31 @@
-use base64::{engine::general_purpose::STANDARD, DecodeError as EngineDecodeError, Engine};
+use std::error::Error;
+use std::fmt;
+
+use base64::{DecodeError as EngineDecodeError, Engine, engine::general_purpose::STANDARD};
 
 use super::Encoding;
 
 /// Standard base64 (with padding) encoding.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Base64;
 
-#[derive(Debug)]
-pub struct Base64DecodeError(pub EngineDecodeError);
+/// The input was not valid standard base64.
+///
+/// The underlying `base64` error is kept private so this crate's API does not depend on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Base64DecodeError(EngineDecodeError);
+
+impl fmt::Display for Base64DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid base64: {}", self.0)
+    }
+}
+
+impl Error for Base64DecodeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.0)
+    }
+}
 
 impl Encoding for Base64 {
     type Output = String;

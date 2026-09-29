@@ -2,6 +2,7 @@
 name = "bitbabel-core"
 version = "0.1.0"
 edition = "2024"
+description = "A deterministic, invertible Library of Babel built on a keyed Feistel permutation"
 
 [dependencies]
 blake3 = "1.8.7"

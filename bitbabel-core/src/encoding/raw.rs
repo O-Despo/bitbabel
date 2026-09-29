@@ -3,6 +3,7 @@ use std::convert::Infallible;
 use super::Encoding;
 
 /// Identity encoding: the representation is just the bytes themselves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Raw;
 
 impl Encoding for Raw {
