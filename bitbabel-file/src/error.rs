@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use bitbabel_core::PageIndexError;
+use bitbabel_core::{LibraryConfig, PageIndexError};
 
 /// Errors from [`pad`](crate::pad) and [`unpad`](crate::unpad).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,3 +94,61 @@ impl fmt::Display for IndexFormatError {
 // No `source()`: `Display` already includes the inner message, and reporting it both ways
 // would print it twice in an error chain.
 impl Error for IndexFormatError {}
+
+/// Errors from building [`Settings`](crate::Settings) or reading a file's header line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderError {
+    /// The header can only name the presets, so custom shapes cannot be written to a file.
+    NotAPreset(LibraryConfig),
+    /// The bytes do not start with `BITBABEL`.
+    NotBabelFile,
+    /// The header is from a format version this crate does not read.
+    UnsupportedVersion(String),
+    /// The header line has no terminating `\n`.
+    MissingNewline,
+    /// The header line is not UTF-8.
+    NotText,
+    /// The header has the wrong number of fields. Doubled or trailing spaces count as empty
+    /// fields.
+    FieldCount { expected: usize, found: usize },
+    /// A field is out of order or unknown.
+    Field {
+        expected: &'static str,
+        found: String,
+    },
+    /// A field's value is not one of its lowercase names.
+    Value { field: &'static str, value: String },
+}
+
+impl fmt::Display for HeaderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HeaderError::NotAPreset(config) => write!(
+                f,
+                "only small, medium and large can be written to a file, got page_len {} and rounds {}",
+                config.page_len(),
+                config.rounds()
+            ),
+            HeaderError::NotBabelFile => write!(f, "not a bitbabel file"),
+            HeaderError::UnsupportedVersion(version) => {
+                write!(
+                    f,
+                    "unsupported file version {version:?}, expected \"BITBABEL1\""
+                )
+            }
+            HeaderError::MissingNewline => write!(f, "header line has no terminating newline"),
+            HeaderError::NotText => write!(f, "header line is not valid text"),
+            HeaderError::FieldCount { expected, found } => {
+                write!(f, "header must have {expected} fields, found {found}")
+            }
+            HeaderError::Field { expected, found } => {
+                write!(f, "expected header field {expected:?}, found {found:?}")
+            }
+            HeaderError::Value { field, value } => {
+                write!(f, "invalid value {value:?} for header field {field:?}")
+            }
+        }
+    }
+}
+
+impl Error for HeaderError {}
