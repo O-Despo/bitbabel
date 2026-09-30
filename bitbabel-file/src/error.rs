@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use bitbabel_core::{LibraryConfig, PageIndexError};
+use bitbabel_core::{LibraryConfig, LibraryError, PageIndexError};
 
 /// Errors from [`pad`](crate::pad) and [`unpad`](crate::unpad).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,3 +152,64 @@ impl fmt::Display for HeaderError {
 }
 
 impl Error for HeaderError {}
+
+/// Errors from [`BabelFile`](crate::BabelFile).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileError {
+    /// The file uses a custom key but none was supplied.
+    MissingKey,
+    /// The file uses the canonical key, so a supplied key would be ignored.
+    UnexpectedKey,
+    /// The header line was invalid. The message includes the header error's own.
+    Header(HeaderError),
+    /// The index list was invalid. The message includes the format error's own.
+    Index(IndexFormatError),
+    /// The data was not padded as expected, usually because of a wrong key. The message
+    /// includes the padding error's own.
+    Pad(PadError),
+    /// The library rejected a page or index. The file keeps every index one page long, so
+    /// this is not expected.
+    Library(LibraryError),
+}
+
+impl fmt::Display for FileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FileError::MissingKey => write!(f, "this file uses a custom key, but none was given"),
+            FileError::UnexpectedKey => {
+                write!(f, "this file uses the canonical key, but a key was given")
+            }
+            FileError::Header(err) => write!(f, "invalid header: {err}"),
+            FileError::Index(err) => write!(f, "invalid index list: {err}"),
+            FileError::Pad(err) => write!(f, "decoded data is not padded (wrong key?): {err}"),
+            FileError::Library(err) => write!(f, "library error: {err}"),
+        }
+    }
+}
+
+// No `source()`, for the same reason as `IndexFormatError`.
+impl Error for FileError {}
+
+impl From<HeaderError> for FileError {
+    fn from(err: HeaderError) -> Self {
+        FileError::Header(err)
+    }
+}
+
+impl From<IndexFormatError> for FileError {
+    fn from(err: IndexFormatError) -> Self {
+        FileError::Index(err)
+    }
+}
+
+impl From<PadError> for FileError {
+    fn from(err: PadError) -> Self {
+        FileError::Pad(err)
+    }
+}
+
+impl From<LibraryError> for FileError {
+    fn from(err: LibraryError) -> Self {
+        FileError::Library(err)
+    }
+}
