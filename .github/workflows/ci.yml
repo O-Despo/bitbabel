@@ -62,3 +62,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+
+  # 32-bit x86: usize is 32 bits here, so this catches integer casts that only
+  # fit on 64-bit. x86_64 runners run i686 binaries natively (no emulation).
+  test-32bit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+      # blake3 compiles C code, which needs a 32-bit C toolchain.
+      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --target i686-unknown-linux-gnu
