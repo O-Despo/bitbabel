@@ -68,7 +68,7 @@ pub fn unpad(padded: &[u8], page_len: usize) -> Result<Vec<u8>, PadError> {
     if page_len == 0 {
         return Err(PadError::ZeroPageLen);
     }
-    if padded.is_empty() || padded.len() % page_len != 0 {
+    if padded.is_empty() || !padded.len().is_multiple_of(page_len) {
         return Err(PadError::Misaligned {
             len: padded.len(),
             page_len,

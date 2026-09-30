@@ -1,0 +1,23 @@
+# Dependabot opens PRs when a dependency has a newer version. CI runs on each
+# of those PRs like on any other, so an update is only merged if it passes.
+version: 2
+updates:
+  # Actions used in .github/workflows, e.g. actions/checkout@v7 -> @v8.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Crates in Cargo.toml and Cargo.lock, for the whole workspace.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Minor and patch updates should not break anything, so they share one PR.
+      # A major version, e.g. blake3 1.x -> 2.0, still gets its own PR.
+      cargo-minor-and-patch:
+        update-types: [minor, patch]

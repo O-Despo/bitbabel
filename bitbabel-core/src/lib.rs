@@ -35,6 +35,8 @@
 //! # }
 //! ```
 
+// cipher.rs is frozen, so newer clippy lints are allowed here instead of fixed.
+#[allow(clippy::manual_is_multiple_of)]
 mod cipher;
 mod config;
 mod cursor;

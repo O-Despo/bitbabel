@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Jobs only read the repo; nothing here writes back to GitHub.
+permissions:
+  contents: read
+
+# A new push to the same branch or PR cancels the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  docs:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps
+
+  # Runs on all three OSes: the pinned canonical-library test proves every
+  # platform computes the same pages. macos-latest is Apple Silicon (arm64),
+  # so this also covers a second CPU architecture
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  # 32-bit x86: usize is 32 bits here, so this catches integer casts that only
+  # fit on 64-bit. x86_64 runners run i686 binaries natively
+  test-32bit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+      # blake3 compiles C code, which needs a 32-bit C toolchain.
+      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --target i686-unknown-linux-gnu
+
+  # Big-endian: s390x stores multi-byte numbers most-significant byte first,
+  # the opposite of x86 and ARM. GitHub has no big-endian machines, so the
+  # tests run under the QEMU emulator. Slower than the other test jobs.
+  test-big-endian:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_LINKER: s390x-linux-gnu-gcc
+      CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_RUNNER: qemu-s390x -L /usr/s390x-linux-gnu
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: s390x-unknown-linux-gnu
+      # A linker for s390x binaries, and QEMU to run them.
+      - run: sudo apt-get update && sudo apt-get install -y gcc-s390x-linux-gnu qemu-user
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --target s390x-unknown-linux-gnu
+
+  # Line coverage, shown on the run's Summary page. Informational only: there
+  # is no minimum percentage, and it is not a required check. Doc tests are not
+  # counted on stable Rust.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov --workspace --summary-only >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

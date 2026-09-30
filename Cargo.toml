@@ -1,6 +1,9 @@
 [workspace]
 members = ["bitbabel-core", "bitbabel-file"]
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
 [package]
 name = "bitbabel"
 version = "0.1.0"
@@ -8,3 +11,6 @@ edition = "2024"
 
 [dependencies]
 bitbabel-core = { path = "bitbabel-core" }
+
+[lints]
+workspace = true

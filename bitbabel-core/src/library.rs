@@ -20,7 +20,7 @@ impl BabelLibrary {
     ///
     /// Returns [`LibraryError::InvalidPageLen`] unless `page_len` is even and non-zero.
     pub fn new(machine: BabelMachine, page_len: usize) -> Result<Self, LibraryError> {
-        if page_len == 0 || page_len % 2 != 0 {
+        if page_len == 0 || !page_len.is_multiple_of(2) {
             Err(LibraryError::InvalidPageLen(page_len))
         } else {
             Ok(BabelLibrary { machine, page_len })
