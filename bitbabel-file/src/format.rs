@@ -95,7 +95,7 @@ impl IndexFormat {
         check_list(payload.len(), page_len)?;
         match self {
             IndexFormat::Raw => {
-                if payload.len() % page_len != 0 {
+                if !payload.len().is_multiple_of(page_len) {
                     return Err(IndexFormatError::Misaligned {
                         len: payload.len(),
                         page_len,
