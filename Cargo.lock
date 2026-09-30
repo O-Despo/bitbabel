@@ -34,6 +34,7 @@ name = "bitbabel-file"
 version = "0.1.0"
 dependencies = [
  "bitbabel-core",
+ "blake3",
 ]
 
 [[package]]

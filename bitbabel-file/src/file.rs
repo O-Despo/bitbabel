@@ -2,19 +2,21 @@
 //!
 //! ```text
 //! encode:  data → pad → split into pages → index_of each → BabelFile → to_bytes
-//! decode:  from_bytes → BabelFile → page_at each → join → unpad → data
+//! decode:  from_bytes → BabelFile → page_at each → join → unpad → verify check → data
 //! ```
 
 use bitbabel_core::{BabelLibrary, Key, PageIndex};
 
+use crate::check::{CHECK_LEN, checksum};
 use crate::error::FileError;
-use crate::header::{KeyMode, Settings};
+use crate::header::{Header, KeyMode, Settings};
 use crate::pad::{pad, unpad};
 
 /// Data stored as a list of page indices in one library, plus the settings that name it.
 ///
 /// Built only by [`encode`](Self::encode) or [`from_bytes`](Self::from_bytes), so there is
-/// always at least one index and every index is one page long.
+/// always at least one index, every index is one page long, and there is a checksum exactly
+/// when the settings ask for one.
 ///
 /// # Example
 ///
@@ -24,7 +26,7 @@ use crate::pad::{pad, unpad};
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let file = BabelFile::encode(b"hello", Settings::default(), None)?;
 /// let bytes = file.to_bytes()?;
-/// assert!(bytes.starts_with(b"BITBABEL1 size=medium key=canonical format=raw\n"));
+/// assert!(bytes.starts_with(b"BITBABEL1 size=medium key=canonical format=raw check="));
 ///
 /// let read = BabelFile::from_bytes(&bytes)?;
 /// assert_eq!(read.decode(None)?, b"hello");
@@ -33,12 +35,13 @@ use crate::pad::{pad, unpad};
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BabelFile {
-    settings: Settings,
+    header: Header,
     indices: Vec<PageIndex>,
 }
 
 impl BabelFile {
-    /// Pads `data`, splits it into pages and finds each page's index.
+    /// Pads `data`, splits it into pages and finds each page's index. Computes the checksum
+    /// if the settings ask for one.
     ///
     /// `key` must be `None` for [`KeyMode::Canonical`] and `Some` for [`KeyMode::Custom`].
     ///
@@ -52,7 +55,13 @@ impl BabelFile {
             .chunks(library.page_len())
             .map(|page| library.index_of(page))
             .collect::<Result<_, _>>()?;
-        Ok(BabelFile { settings, indices })
+        let check = settings
+            .check()
+            .then(|| checksum(data, settings.size(), key));
+        Ok(BabelFile {
+            header: Header { settings, check },
+            indices,
+        })
     }
 
     /// The original data: each index's page, joined and unpadded. Inverse of
@@ -61,15 +70,25 @@ impl BabelFile {
     /// # Errors
     ///
     /// Returns [`FileError::UnexpectedKey`] or [`FileError::MissingKey`] if `key` does not
-    /// match the key mode, or [`FileError::Pad`] if the joined pages are not padded. With a
-    /// custom key, a wrong key usually gives [`FileError::Pad`] but can give wrong data.
+    /// match the key mode, [`FileError::Pad`] if the joined pages are not padded, or
+    /// [`FileError::ChecksumMismatch`] if the data does not match the file's checksum. A wrong
+    /// key or a corrupted index gives one of the last two. Without a checksum, it can instead
+    /// give wrong data.
     pub fn decode(&self, key: Option<&Key>) -> Result<Vec<u8>, FileError> {
-        let library = library_for(self.settings, key)?;
+        let settings = self.header.settings;
+        let library = library_for(settings, key)?;
         let mut padded = Vec::with_capacity(self.indices.len() * library.page_len());
         for index in &self.indices {
             padded.extend_from_slice(library.page_at(index)?.bytes());
         }
-        Ok(unpad(&padded, library.page_len())?)
+        let data = unpad(&padded, library.page_len())?;
+
+        if let Some(expected) = self.header.check
+            && checksum(&data, settings.size(), key) != expected
+        {
+            return Err(FileError::ChecksumMismatch);
+        }
+        Ok(data)
     }
 
     /// The file as written to disk: the header line, then the indices in the settings' format.
@@ -79,11 +98,12 @@ impl BabelFile {
     /// Returns [`FileError::Index`] if the index list cannot be written. A `BabelFile` always
     /// holds a valid list, so this is not expected.
     pub fn to_bytes(&self) -> Result<Vec<u8>, FileError> {
-        let mut bytes = self.settings.header().into_bytes();
+        let settings = self.header.settings;
+        let mut bytes = self.header.write().into_bytes();
         bytes.extend(
-            self.settings
+            settings
                 .format()
-                .encode(&self.indices, self.settings.size().page_len())?,
+                .encode(&self.indices, settings.size().page_len())?,
         );
         Ok(bytes)
     }
@@ -95,15 +115,21 @@ impl BabelFile {
     /// Returns [`FileError::Header`] if the header line is invalid, or [`FileError::Index`] if
     /// the payload is not a valid index list for the header's size and format.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, FileError> {
-        let (settings, payload) = Settings::parse_header(bytes)?;
+        let (header, payload) = Header::parse(bytes)?;
+        let settings = header.settings;
         let indices = settings
             .format()
             .decode(payload, settings.size().page_len())?;
-        Ok(BabelFile { settings, indices })
+        Ok(BabelFile { header, indices })
     }
 
     pub fn settings(&self) -> Settings {
-        self.settings
+        self.header.settings
+    }
+
+    /// The checksum written in the header, or `None` if the file has none.
+    pub fn checksum(&self) -> Option<[u8; CHECK_LEN]> {
+        self.header.check
     }
 
     /// One index per page, in order. Never empty.
@@ -183,10 +209,62 @@ mod test {
     }
 
     #[test]
-    fn wrong_key_does_not_give_the_data_back() {
+    fn wrong_key_is_an_error() {
         let custom = small(KeyMode::Custom, IndexFormat::Raw);
         let file = BabelFile::encode(b"secret", custom, Some(&key(1))).unwrap();
-        assert_ne!(file.decode(Some(&key(2))), Ok(b"secret".to_vec()));
+        assert!(matches!(
+            file.decode(Some(&key(2))),
+            Err(FileError::Pad(_) | FileError::ChecksumMismatch)
+        ));
+    }
+
+    #[test]
+    fn checksum_is_on_by_default_and_can_be_turned_off() {
+        let settings = small(KeyMode::Canonical, IndexFormat::Hex);
+        let with = BabelFile::encode(b"hi", settings, None).unwrap();
+        assert_eq!(
+            with.checksum(),
+            Some(checksum(b"hi", LibraryConfig::SMALL, None))
+        );
+
+        let without = BabelFile::encode(b"hi", settings.with_check(false), None).unwrap();
+        assert_eq!(without.checksum(), None);
+        let bytes = without.to_bytes().unwrap();
+        assert!(bytes.starts_with(b"BITBABEL1 size=small key=canonical format=hex\n"));
+        assert_eq!(BabelFile::from_bytes(&bytes).unwrap(), without);
+    }
+
+    #[test]
+    fn a_corrupted_middle_index_fails_the_checksum() {
+        // Only the last page carries padding, so without a checksum this would decode.
+        let settings = small(KeyMode::Canonical, IndexFormat::Raw);
+        let mut bytes = BabelFile::encode(&[5; 40], settings, None)
+            .unwrap()
+            .to_bytes()
+            .unwrap();
+        let header_len = bytes.iter().position(|&b| b == b'\n').unwrap() + 1;
+        bytes[header_len] ^= 1; // first byte of the first index
+        let file = BabelFile::from_bytes(&bytes).unwrap();
+        assert_eq!(file.decode(None), Err(FileError::ChecksumMismatch));
+
+        let unchecked = BabelFile::encode(&[5; 40], settings.with_check(false), None).unwrap();
+        let mut indices = unchecked.indices().to_vec();
+        let mut first = indices[0].as_bytes().to_vec();
+        first[0] ^= 1;
+        indices[0] = PageIndex::from_bytes(first);
+        let corrupted = BabelFile {
+            header: unchecked.header,
+            indices,
+        };
+        assert!(corrupted.decode(None).is_ok_and(|data| data != [5; 40]));
+    }
+
+    #[test]
+    fn a_tampered_check_value_fails() {
+        let settings = small(KeyMode::Canonical, IndexFormat::Hex);
+        let mut file = BabelFile::encode(b"hi", settings, None).unwrap();
+        file.header.check = Some([0; CHECK_LEN]);
+        assert_eq!(file.decode(None), Err(FileError::ChecksumMismatch));
     }
 
     #[test]
@@ -204,9 +282,7 @@ mod test {
     #[test]
     fn decode_rejects_indices_whose_pages_are_not_padded() {
         // Index 0 of the canonical small library is a random-looking page, not padding.
-        let mut bytes = small(KeyMode::Canonical, IndexFormat::Raw)
-            .header()
-            .into_bytes();
+        let mut bytes = b"BITBABEL1 size=small key=canonical format=raw\n".to_vec();
         bytes.extend([0u8; 16]);
         let file = BabelFile::from_bytes(&bytes).unwrap();
         assert!(matches!(file.decode(None), Err(FileError::Pad(_))));

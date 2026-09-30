@@ -108,15 +108,16 @@ pub enum HeaderError {
     MissingNewline,
     /// The header line is not UTF-8.
     NotText,
-    /// The header has the wrong number of fields. Doubled or trailing spaces count as empty
-    /// fields.
-    FieldCount { expected: usize, found: usize },
+    /// The header must have 3 fields, or 4 with a check. Doubled or trailing spaces count as
+    /// empty fields.
+    FieldCount { found: usize },
     /// A field is out of order or unknown.
     Field {
         expected: &'static str,
         found: String,
     },
-    /// A field's value is not one of its lowercase names.
+    /// A field's value is not one of its lowercase names, or a check is not 16 lowercase hex
+    /// digits.
     Value { field: &'static str, value: String },
 }
 
@@ -138,8 +139,11 @@ impl fmt::Display for HeaderError {
             }
             HeaderError::MissingNewline => write!(f, "header line has no terminating newline"),
             HeaderError::NotText => write!(f, "header line is not valid text"),
-            HeaderError::FieldCount { expected, found } => {
-                write!(f, "header must have {expected} fields, found {found}")
+            HeaderError::FieldCount { found } => {
+                write!(
+                    f,
+                    "header must have 3 fields, or 4 with a check, found {found}"
+                )
             }
             HeaderError::Field { expected, found } => {
                 write!(f, "expected header field {expected:?}, found {found:?}")
@@ -167,6 +171,8 @@ pub enum FileError {
     /// The data was not padded as expected, usually because of a wrong key. The message
     /// includes the padding error's own.
     Pad(PadError),
+    /// The data does not match the file's checksum: a wrong key or a corrupted file.
+    ChecksumMismatch,
     /// The library rejected a page or index. The file keeps every index one page long, so
     /// this is not expected.
     Library(LibraryError),
@@ -182,6 +188,9 @@ impl fmt::Display for FileError {
             FileError::Header(err) => write!(f, "invalid header: {err}"),
             FileError::Index(err) => write!(f, "invalid index list: {err}"),
             FileError::Pad(err) => write!(f, "decoded data is not padded (wrong key?): {err}"),
+            FileError::ChecksumMismatch => {
+                write!(f, "checksum does not match: wrong key or corrupted file")
+            }
             FileError::Library(err) => write!(f, "library error: {err}"),
         }
     }

@@ -6,3 +6,4 @@ description = "Encodes arbitrary bytes as a list of bitbabel page indices, and b
 
 [dependencies]
 bitbabel-core = { path = "../bitbabel-core" }
+blake3 = "1.8.7"

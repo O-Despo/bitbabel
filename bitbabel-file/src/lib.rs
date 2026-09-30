@@ -7,13 +7,14 @@
 //!
 //! - [`pad`] and [`unpad`] bring data to a whole number of pages and back.
 //! - [`IndexFormat`] writes a list of page indices as raw bytes, hex lines or base64 lines.
-//! - [`Settings`] records the size, [`KeyMode`] and format, and writes and reads them as the
-//!   file's one-line header.
+//! - [`Settings`] records the size, [`KeyMode`], format and whether to add a checksum. A file
+//!   writes them, with the checksum, as its one-line header.
 //! - [`BabelFile`] ties them together: [`encode`](BabelFile::encode) and
 //!   [`decode`](BabelFile::decode) turn data into indices and back, and
 //!   [`to_bytes`](BabelFile::to_bytes) and [`from_bytes`](BabelFile::from_bytes) write and read
 //!   the file.
 
+mod check;
 mod error;
 mod file;
 mod format;
