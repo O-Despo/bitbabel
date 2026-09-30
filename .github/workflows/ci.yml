@@ -49,7 +49,8 @@ jobs:
       - run: cargo doc --workspace --no-deps
 
   # Runs on all three OSes: the pinned canonical-library test proves every
-  # platform computes the same pages.
+  # platform computes the same pages. macos-latest is Apple Silicon (arm64),
+  # so this also covers a second CPU architecture
   test:
     strategy:
       fail-fast: false

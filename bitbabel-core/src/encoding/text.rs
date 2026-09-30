@@ -29,8 +29,10 @@ impl Encoding for Utf16Le {
 
     fn encode(bytes: &[u8]) -> Self::Output {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .filter_map(|pair| <[u8; 2]>::try_from(pair).ok())
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
             .map(u16::from_le_bytes)
             .collect();
         String::from_utf16_lossy(&units)
@@ -51,8 +53,10 @@ impl Encoding for Utf16Be {
 
     fn encode(bytes: &[u8]) -> Self::Output {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .filter_map(|pair| <[u8; 2]>::try_from(pair).ok())
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
             .map(u16::from_be_bytes)
             .collect();
         String::from_utf16_lossy(&units)
