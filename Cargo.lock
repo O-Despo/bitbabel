@@ -30,6 +30,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitbabel-file"
+version = "0.1.0"
+dependencies = [
+ "bitbabel-core",
+]
+
+[[package]]
 name = "blake3"
 version = "1.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

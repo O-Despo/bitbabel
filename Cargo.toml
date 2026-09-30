@@ -1,5 +1,5 @@
 [workspace]
-members = ["bitbabel-core"]
+members = ["bitbabel-core", "bitbabel-file"]
 
 [package]
 name = "bitbabel"

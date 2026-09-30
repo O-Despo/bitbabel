@@ -1,0 +1,8 @@
+[package]
+name = "bitbabel-file"
+version = "0.1.0"
+edition = "2024"
+description = "Encodes arbitrary bytes as a list of bitbabel page indices, and back"
+
+[dependencies]
+bitbabel-core = { path = "../bitbabel-core" }
