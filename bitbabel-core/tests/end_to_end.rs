@@ -17,6 +17,9 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<KeyError>();
     assert_send_sync::<PageIndexError>();
     assert_send_sync::<ConfigNameError>();
+    assert_send_sync::<SearchOptions>();
+    assert_send_sync::<SearchResult>();
+    assert_send_sync::<SearchError>();
     assert_send_sync::<BabelGuaranteedText>();
     assert_send_sync::<BabelGuaranteedTextDecodeError>();
     assert_send_sync::<CipherError>();
@@ -171,4 +174,29 @@ fn medium_page_is_exactly_3200_characters_and_decodes_to_its_index() {
     let bytes = BabelGuaranteedText::decode(&text).unwrap();
     assert_eq!(bytes, page.bytes());
     assert_eq!(library.index_of(&bytes).unwrap(), index);
+}
+
+#[test]
+fn text_search_finds_pages_that_read_as_the_text() {
+    let library = BabelLibrary::canonical(LibraryConfig::MEDIUM).unwrap();
+    let needle = BabelGuaranteedText::decode(&"hello, babel".to_string()).unwrap();
+
+    let results = library
+        .search(&needle, &SearchOptions::surrounded([42; 32]).limit(3))
+        .unwrap();
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        // One byte is one character, so byte offsets are character offsets.
+        let text: Vec<char> = result
+            .page()
+            .encode_as::<BabelGuaranteedText>()
+            .chars()
+            .collect();
+        let found: String = text[result.start()..result.end()].iter().collect();
+        assert_eq!(found, "hello, babel");
+
+        let index = result.page().index();
+        assert_eq!(library.page_at(index).unwrap(), *result.page());
+    }
 }

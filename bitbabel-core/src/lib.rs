@@ -9,6 +9,7 @@
 //! - [`Key`] is the 256-bit key that names a universe. It is mixed with the page length and
 //!   round count before use, so a key plus a [`LibraryConfig`] names exactly one library.
 //! - [`BabelLibrary`] ties a machine to a fixed page length; [`Cursor`] walks through it.
+//!   [`BabelLibrary::search`] finds pages that contain a given value.
 //! - [`LibraryConfig`] names ready-made shapes ([`SMALL`](LibraryConfig::SMALL),
 //!   [`MEDIUM`](LibraryConfig::MEDIUM), [`LARGE`](LibraryConfig::LARGE)), each with a shared
 //!   canonical key so everyone sees the same library.
@@ -43,6 +44,7 @@ mod index;
 mod key;
 mod library;
 mod page;
+mod search;
 
 pub use cipher::{BabelMachine, FeistelBytes};
 pub use config::LibraryConfig;
@@ -51,8 +53,11 @@ pub use encoding::{
     BabelGuaranteedText, BabelGuaranteedTextDecodeError, Base64, Base64DecodeError, Encoding, Hex,
     HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
 };
-pub use error::{CipherError, ConfigNameError, KeyError, LibraryError, PageIndexError};
+pub use error::{
+    CipherError, ConfigNameError, KeyError, LibraryError, PageIndexError, SearchError,
+};
 pub use index::PageIndex;
 pub use key::Key;
 pub use library::BabelLibrary;
 pub use page::Page;
+pub use search::{Fill, Placement, SearchOptions, SearchResult};

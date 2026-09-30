@@ -150,6 +150,43 @@ impl fmt::Display for ConfigNameError {
 
 impl Error for ConfigNameError {}
 
+/// Errors from [`BabelLibrary::search`](crate::BabelLibrary::search).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchError {
+    /// There is nothing to search for.
+    EmptyNeedle,
+    /// The needle does not fit in one page.
+    NeedleTooLong { needle_len: usize, page_len: usize },
+    /// The library rejected a page it was given. Search only builds pages of the right
+    /// length, so this is not expected.
+    Library(LibraryError),
+}
+
+impl fmt::Display for SearchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SearchError::EmptyNeedle => write!(f, "search needle is empty"),
+            SearchError::NeedleTooLong {
+                needle_len,
+                page_len,
+            } => write!(
+                f,
+                "needle is {needle_len} bytes but a page is only {page_len}"
+            ),
+            SearchError::Library(err) => write!(f, "library error: {err}"),
+        }
+    }
+}
+
+// No `source()`, for the same reason as `LibraryError`.
+impl Error for SearchError {}
+
+impl From<LibraryError> for SearchError {
+    fn from(err: LibraryError) -> Self {
+        SearchError::Library(err)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
