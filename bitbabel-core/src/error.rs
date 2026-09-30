@@ -134,6 +134,22 @@ impl From<Base64DecodeError> for PageIndexError {
     }
 }
 
+/// A size name was not one of the presets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigNameError(pub String);
+
+impl fmt::Display for ConfigNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "unknown size {:?}, expected small, medium or large",
+            self.0
+        )
+    }
+}
+
+impl Error for ConfigNameError {}
+
 #[cfg(test)]
 mod test {
     use super::*;

@@ -1,3 +1,6 @@
+use std::str::FromStr;
+
+use crate::error::ConfigNameError;
 use crate::key::Key;
 
 /// The shape of a library: how long its pages (and therefore indexes) are, and how many
@@ -67,6 +70,45 @@ impl LibraryConfig {
     }
 }
 
+/// Every preset and its name. The names are part of the future file header, so they are
+/// lowercase and fixed.
+const PRESETS: [(&str, LibraryConfig); 3] = [
+    ("small", LibraryConfig::SMALL),
+    ("medium", LibraryConfig::MEDIUM),
+    ("large", LibraryConfig::LARGE),
+];
+
+impl LibraryConfig {
+    /// The preset's name (`"small"`, `"medium"` or `"large"`), or `None` for a custom shape.
+    pub fn name(&self) -> Option<&'static str> {
+        PRESETS
+            .iter()
+            .find(|(_, preset)| preset == self)
+            .map(|(name, _)| *name)
+    }
+}
+
+/// Parses a preset name. Only the exact lowercase names are accepted, so each preset has one
+/// spelling.
+///
+/// ```
+/// use bitbabel_core::LibraryConfig;
+///
+/// assert_eq!("medium".parse(), Ok(LibraryConfig::MEDIUM));
+/// assert!("Medium".parse::<LibraryConfig>().is_err());
+/// ```
+impl FromStr for LibraryConfig {
+    type Err = ConfigNameError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        PRESETS
+            .iter()
+            .find(|(preset_name, _)| *preset_name == name)
+            .map(|(_, preset)| *preset)
+            .ok_or_else(|| ConfigNameError(name.to_string()))
+    }
+}
+
 impl Default for LibraryConfig {
     fn default() -> Self {
         Self::MEDIUM
@@ -84,6 +126,34 @@ mod test {
         assert_eq!(LibraryConfig::MEDIUM, LibraryConfig::new(3200, 8));
         assert_eq!(LibraryConfig::LARGE, LibraryConfig::new(6400, 8));
         assert_eq!(LibraryConfig::default(), LibraryConfig::MEDIUM);
+    }
+
+    #[test]
+    fn preset_names_round_trip() {
+        for (name, config) in PRESETS {
+            assert_eq!(config.name(), Some(name));
+            assert_eq!(name.parse(), Ok(config));
+        }
+    }
+
+    #[test]
+    fn custom_shapes_have_no_name() {
+        assert_eq!(LibraryConfig::new(18, 8).name(), None);
+        assert_eq!(LibraryConfig::new(16, 9).name(), None);
+    }
+
+    #[test]
+    fn unknown_or_miscased_names_are_rejected() {
+        for bad in ["huge", "Medium", "SMALL", " small", ""] {
+            assert_eq!(
+                bad.parse::<LibraryConfig>(),
+                Err(ConfigNameError(bad.to_string()))
+            );
+        }
+        assert_eq!(
+            "huge".parse::<LibraryConfig>().unwrap_err().to_string(),
+            "unknown size \"huge\", expected small, medium or large"
+        );
     }
 
     #[test]
