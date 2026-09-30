@@ -1,5 +1,8 @@
 use std::fmt;
 
+use crate::encoding::{Base64, Encoding, Hex};
+use crate::error::PageIndexError;
+
 /// An arbitrary-length, big-endian unsigned integer that addresses a page.
 ///
 /// Its length is not tied to any integer width, so it can match the page size: a 3200-byte
@@ -48,6 +51,42 @@ impl PageIndex {
     /// Wraps big-endian `bytes`. Any length is valid; a library checks it when the index is used.
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         PageIndex(bytes)
+    }
+
+    /// Parses hex text (either case) as an index of exactly `len` bytes, `2 * len` digits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PageIndexError::Hex`] for malformed text, or [`PageIndexError::LenMismatch`]
+    /// if it decodes to any other length.
+    pub fn from_hex(text: &str, len: usize) -> Result<Self, PageIndexError> {
+        Self::checked(Hex::decode(&text.to_string())?, len)
+    }
+
+    /// Parses standard padded base64 as an index of exactly `len` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PageIndexError::Base64`] for malformed text, or
+    /// [`PageIndexError::LenMismatch`] if it decodes to any other length.
+    pub fn from_base64(text: &str, len: usize) -> Result<Self, PageIndexError> {
+        Self::checked(Base64::decode(&text.to_string())?, len)
+    }
+
+    /// The index as standard padded base64. For hex, use `to_string()` or `{:x}`.
+    pub fn to_base64(&self) -> String {
+        Base64::encode(&self.0)
+    }
+
+    fn checked(bytes: Vec<u8>, len: usize) -> Result<Self, PageIndexError> {
+        if bytes.len() == len {
+            Ok(PageIndex(bytes))
+        } else {
+            Err(PageIndexError::LenMismatch {
+                expected: len,
+                actual: bytes.len(),
+            })
+        }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -104,6 +143,13 @@ impl fmt::Debug for PageIndex {
         f.debug_tuple("PageIndex")
             .field(&HexPreview(&self.0))
             .finish()
+    }
+}
+
+/// Lowercase hex, the same as `{:x}`. [`from_hex`](PageIndex::from_hex) reads it back.
+impl fmt::Display for PageIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(self, f)
     }
 }
 
@@ -190,6 +236,57 @@ mod test {
     fn debug_shows_short_indexes_in_full() {
         let index = PageIndex::from_bytes(vec![0x0a, 0xff]);
         assert_eq!(format!("{index:?}"), "PageIndex(0aff)");
+    }
+
+    #[test]
+    fn display_is_lowercase_hex() {
+        let index = PageIndex::from_bytes(vec![0x0a, 0xff]);
+        assert_eq!(index.to_string(), "0aff");
+        assert_eq!(index.to_string(), format!("{index:x}"));
+    }
+
+    #[test]
+    fn hex_and_base64_round_trip() {
+        let index = PageIndex::from_u64(0x0123_4567_89ab_cdef, 16);
+        assert_eq!(PageIndex::from_hex(&index.to_string(), 16).unwrap(), index);
+        assert_eq!(
+            PageIndex::from_hex(&format!("{index:X}"), 16).unwrap(),
+            index
+        );
+        assert_eq!(
+            PageIndex::from_base64(&index.to_base64(), 16).unwrap(),
+            index
+        );
+    }
+
+    #[test]
+    fn text_of_the_wrong_length_is_rejected() {
+        assert_eq!(
+            PageIndex::from_hex("0aff", 16).unwrap_err(),
+            PageIndexError::LenMismatch {
+                expected: 16,
+                actual: 2
+            }
+        );
+        assert_eq!(
+            PageIndex::from_base64("AAAA", 16).unwrap_err(),
+            PageIndexError::LenMismatch {
+                expected: 16,
+                actual: 3
+            }
+        );
+    }
+
+    #[test]
+    fn malformed_text_is_rejected() {
+        assert!(matches!(
+            PageIndex::from_hex("zz", 1),
+            Err(PageIndexError::Hex(_))
+        ));
+        assert!(matches!(
+            PageIndex::from_base64("!!", 1),
+            Err(PageIndexError::Base64(_))
+        ));
     }
 
     #[test]

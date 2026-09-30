@@ -51,7 +51,7 @@ pub use encoding::{
     BabelGuaranteedText, BabelGuaranteedTextDecodeError, Base64, Base64DecodeError, Encoding, Hex,
     HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
 };
-pub use error::{CipherError, KeyError, LibraryError};
+pub use error::{CipherError, KeyError, LibraryError, PageIndexError};
 pub use index::PageIndex;
 pub use key::Key;
 pub use library::BabelLibrary;

@@ -96,6 +96,44 @@ impl From<Base64DecodeError> for KeyError {
     }
 }
 
+/// Errors from reading a [`PageIndex`](crate::PageIndex) from text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageIndexError {
+    /// The hex text was malformed. The message includes the decoder's own.
+    Hex(HexDecodeError),
+    /// The base64 text was malformed. The message includes the decoder's own.
+    Base64(Base64DecodeError),
+    /// The text decoded to the wrong number of bytes for this library.
+    LenMismatch { expected: usize, actual: usize },
+}
+
+impl fmt::Display for PageIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PageIndexError::Hex(err) => write!(f, "invalid index: {err}"),
+            PageIndexError::Base64(err) => write!(f, "invalid index: {err}"),
+            PageIndexError::LenMismatch { expected, actual } => {
+                write!(f, "index must be {expected} bytes, got {actual}")
+            }
+        }
+    }
+}
+
+// No `source()`, for the same reason as `LibraryError`.
+impl Error for PageIndexError {}
+
+impl From<HexDecodeError> for PageIndexError {
+    fn from(err: HexDecodeError) -> Self {
+        PageIndexError::Hex(err)
+    }
+}
+
+impl From<Base64DecodeError> for PageIndexError {
+    fn from(err: Base64DecodeError) -> Self {
+        PageIndexError::Base64(err)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
