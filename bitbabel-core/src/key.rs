@@ -48,8 +48,8 @@ impl Key {
     ///
     /// Returns [`KeyError::InvalidLength`] unless `bytes` is exactly 32 bytes long.
     pub fn from_slice(bytes: &[u8]) -> Result<Self, KeyError> {
-        let array = <[u8; KEY_LEN]>::try_from(bytes)
-            .map_err(|_| KeyError::InvalidLength(bytes.len()))?;
+        let array =
+            <[u8; KEY_LEN]>::try_from(bytes).map_err(|_| KeyError::InvalidLength(bytes.len()))?;
         Ok(Key(array))
     }
 
@@ -143,7 +143,10 @@ mod test {
 
     #[test]
     fn hex_and_base64_reject_bad_input() {
-        assert_eq!(Key::from_hex("abcd").unwrap_err(), KeyError::InvalidLength(2));
+        assert_eq!(
+            Key::from_hex("abcd").unwrap_err(),
+            KeyError::InvalidLength(2)
+        );
         assert!(matches!(
             Key::from_hex(&"zz".repeat(32)),
             Err(KeyError::Hex(_))

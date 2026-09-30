@@ -4,8 +4,29 @@ use std::fmt;
 ///
 /// Its length is not tied to any integer width, so it can match the page size: a 3200-byte
 /// page needs an index space far larger than `u64`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// `{:?}` shows a short hex preview (a MEDIUM index is 3200 bytes); `{:#?}` shows it all.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PageIndex(Vec<u8>);
+
+/// Bytes shown in a `{:?}` preview before it is cut short.
+const PREVIEW_LEN: usize = 8;
+
+/// `Debug` for a byte buffer: hex, cut to [`PREVIEW_LEN`] bytes plus the total length unless
+/// the alternate flag (`{:#?}`) asks for all of it.
+pub(crate) struct HexPreview<'a>(pub(crate) &'a [u8]);
+
+impl fmt::Debug for HexPreview<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() || self.0.len() <= PREVIEW_LEN {
+            return self.0.iter().try_for_each(|b| write!(f, "{b:02x}"));
+        }
+        self.0[..PREVIEW_LEN]
+            .iter()
+            .try_for_each(|b| write!(f, "{b:02x}"))?;
+        write!(f, "… ({} bytes)", self.0.len())
+    }
+}
 
 impl PageIndex {
     /// An index of `len` zero bytes.
@@ -78,6 +99,14 @@ impl From<Vec<u8>> for PageIndex {
     }
 }
 
+impl fmt::Debug for PageIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("PageIndex")
+            .field(&HexPreview(&self.0))
+            .finish()
+    }
+}
+
 impl fmt::LowerHex for PageIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.iter().try_for_each(|b| write!(f, "{b:02x}"))
@@ -145,6 +174,22 @@ mod test {
         let mut expected = vec![0u8; 400];
         expected[399] = 1;
         assert_eq!(index.into_bytes(), expected);
+    }
+
+    #[test]
+    fn debug_previews_long_indexes() {
+        let index = PageIndex::from_u64(0xabcd, 3200);
+        assert_eq!(
+            format!("{index:?}"),
+            "PageIndex(0000000000000000… (3200 bytes))"
+        );
+        assert!(format!("{index:#?}").contains(&"00".repeat(3198)));
+    }
+
+    #[test]
+    fn debug_shows_short_indexes_in_full() {
+        let index = PageIndex::from_bytes(vec![0x0a, 0xff]);
+        assert_eq!(format!("{index:?}"), "PageIndex(0aff)");
     }
 
     #[test]
