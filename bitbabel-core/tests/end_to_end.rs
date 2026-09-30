@@ -13,6 +13,8 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<BabelLibrary>();
     assert_send_sync::<Cursor>();
     assert_send_sync::<LibraryConfig>();
+    assert_send_sync::<BabelGuaranteedText>();
+    assert_send_sync::<BabelGuaranteedTextDecodeError>();
     assert_send_sync::<CipherError>();
     assert_send_sync::<LibraryError>();
     assert_send_sync::<Base64DecodeError>();
@@ -150,4 +152,19 @@ fn canonical_libraries_are_pinned() {
     let small = BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
     let page = small.page_at(&PageIndex::zero(16)).unwrap();
     assert_eq!(page.encode_as::<Hex>(), "d5d57971bc44bb157ab3e3126b9bb278");
+}
+
+#[test]
+fn medium_page_is_exactly_3200_characters_and_decodes_to_its_index() {
+    let config = LibraryConfig::MEDIUM;
+    let library = BabelLibrary::canonical(config).unwrap();
+    let index = PageIndex::from_u64(123_456_789, config.page_len());
+    let page = library.page_at(&index).unwrap();
+
+    let text = page.encode_as::<BabelGuaranteedText>();
+    assert_eq!(text.chars().count(), 3200);
+
+    let bytes = BabelGuaranteedText::decode(&text).unwrap();
+    assert_eq!(bytes, page.bytes());
+    assert_eq!(library.index_of(&bytes).unwrap(), index);
 }

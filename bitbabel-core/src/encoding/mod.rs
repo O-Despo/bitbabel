@@ -1,8 +1,10 @@
+mod babel_guaranteed_text;
 mod base64;
 mod hex;
 mod raw;
 mod text;
 
+pub use babel_guaranteed_text::{BabelGuaranteedText, BabelGuaranteedTextDecodeError};
 pub use base64::{Base64, Base64DecodeError};
 pub use hex::{Hex, HexDecodeError};
 pub use raw::Raw;

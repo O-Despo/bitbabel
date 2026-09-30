@@ -11,6 +11,7 @@
 //!   [`MEDIUM`](LibraryConfig::MEDIUM), [`LARGE`](LibraryConfig::LARGE)), each with a shared
 //!   canonical key so everyone sees the same library.
 //! - [`Encoding`] types ([`Hex`], [`Base64`], [`Utf8`], ...) render a page's bytes.
+//!   [`BabelGuaranteedText`] shows each byte as exactly one visible character.
 //!
 //! # Example
 //!
@@ -44,7 +45,8 @@ pub use cipher::{BabelMachine, FeistelBytes};
 pub use config::LibraryConfig;
 pub use cursor::Cursor;
 pub use encoding::{
-    Base64, Base64DecodeError, Encoding, Hex, HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
+    BabelGuaranteedText, BabelGuaranteedTextDecodeError, Base64, Base64DecodeError, Encoding, Hex,
+    HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
 };
 pub use error::{CipherError, LibraryError};
 pub use index::PageIndex;
