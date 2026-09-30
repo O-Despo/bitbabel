@@ -32,7 +32,7 @@ pub enum LibraryError {
     InvalidPageLen(usize),
     /// An index or page was not exactly `page_len` bytes long.
     LenMismatch { expected: usize, actual: usize },
-    /// The underlying cipher rejected its input.
+    /// The underlying cipher rejected its input. The message includes the cipher's own.
     Cipher(CipherError),
 }
 
@@ -45,19 +45,14 @@ impl fmt::Display for LibraryError {
             LibraryError::LenMismatch { expected, actual } => {
                 write!(f, "expected {expected} bytes, got {actual}")
             }
-            LibraryError::Cipher(_) => write!(f, "cipher error"),
+            LibraryError::Cipher(err) => write!(f, "cipher error: {err}"),
         }
     }
 }
 
-impl Error for LibraryError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            LibraryError::Cipher(err) => Some(err),
-            _ => None,
-        }
-    }
-}
+// No `source()`: `Display` already includes the inner message, and reporting it both ways
+// would print it twice in an error chain.
+impl Error for LibraryError {}
 
 impl From<CipherError> for LibraryError {
     fn from(err: CipherError) -> Self {
@@ -70,9 +65,9 @@ impl From<CipherError> for LibraryError {
 pub enum KeyError {
     /// A key is exactly 32 bytes.
     InvalidLength(usize),
-    /// The hex text was malformed.
+    /// The hex text was malformed. The message includes the decoder's own.
     Hex(HexDecodeError),
-    /// The base64 text was malformed.
+    /// The base64 text was malformed. The message includes the decoder's own.
     Base64(Base64DecodeError),
 }
 
@@ -80,21 +75,14 @@ impl fmt::Display for KeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KeyError::InvalidLength(len) => write!(f, "key must be 32 bytes, got {len}"),
-            KeyError::Hex(_) => write!(f, "invalid hex key"),
-            KeyError::Base64(_) => write!(f, "invalid base64 key"),
+            KeyError::Hex(err) => write!(f, "invalid key: {err}"),
+            KeyError::Base64(err) => write!(f, "invalid key: {err}"),
         }
     }
 }
 
-impl Error for KeyError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            KeyError::Hex(err) => Some(err),
-            KeyError::Base64(err) => Some(err),
-            KeyError::InvalidLength(_) => None,
-        }
-    }
-}
+// No `source()`, for the same reason as `LibraryError`.
+impl Error for KeyError {}
 
 impl From<HexDecodeError> for KeyError {
     fn from(err: HexDecodeError) -> Self {
@@ -105,5 +93,28 @@ impl From<HexDecodeError> for KeyError {
 impl From<Base64DecodeError> for KeyError {
     fn from(err: Base64DecodeError) -> Self {
         KeyError::Base64(err)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::encoding::{Base64, Encoding, Hex};
+
+    #[test]
+    fn library_error_includes_the_cipher_message() {
+        let err = LibraryError::from(CipherError::ZeroRounds);
+        assert_eq!(err.to_string(), "cipher error: rounds must be at least 1");
+        assert!(err.source().is_none());
+    }
+
+    #[test]
+    fn key_error_includes_the_decoder_message() {
+        let hex = KeyError::from(Hex::decode(&"zz".to_string()).unwrap_err());
+        assert_eq!(hex.to_string(), "invalid key: invalid hex digit 'z'");
+
+        let b64 = KeyError::from(Base64::decode(&"!!".to_string()).unwrap_err());
+        assert!(b64.to_string().starts_with("invalid key: invalid base64: "));
+        assert!(b64.source().is_none());
     }
 }

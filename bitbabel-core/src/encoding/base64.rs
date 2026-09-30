@@ -21,11 +21,8 @@ impl fmt::Display for Base64DecodeError {
     }
 }
 
-impl Error for Base64DecodeError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.0)
-    }
-}
+// No `source()`: `Display` already includes the engine's message.
+impl Error for Base64DecodeError {}
 
 impl Encoding for Base64 {
     type Output = String;
