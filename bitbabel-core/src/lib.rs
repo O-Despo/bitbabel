@@ -6,6 +6,8 @@
 //! - [`PageIndex`] is an arbitrary-length big-endian index.
 //! - [`BabelMachine`] is a keyed Feistel permutation (see [`FeistelBytes`]); the library runs
 //!   an index through it to get a [`Page`], and runs a page backward to get its index.
+//! - [`Key`] is the 256-bit key that names a universe. It is mixed with the page length and
+//!   round count before use, so a key plus a [`LibraryConfig`] names exactly one library.
 //! - [`BabelLibrary`] ties a machine to a fixed page length; [`Cursor`] walks through it.
 //! - [`LibraryConfig`] names ready-made shapes ([`SMALL`](LibraryConfig::SMALL),
 //!   [`MEDIUM`](LibraryConfig::MEDIUM), [`LARGE`](LibraryConfig::LARGE)), each with a shared
@@ -38,6 +40,7 @@ mod cursor;
 mod encoding;
 mod error;
 mod index;
+mod key;
 mod library;
 mod page;
 
@@ -48,7 +51,8 @@ pub use encoding::{
     BabelGuaranteedText, BabelGuaranteedTextDecodeError, Base64, Base64DecodeError, Encoding, Hex,
     HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
 };
-pub use error::{CipherError, LibraryError};
+pub use error::{CipherError, KeyError, LibraryError};
 pub use index::PageIndex;
+pub use key::Key;
 pub use library::BabelLibrary;
 pub use page::Page;

@@ -1,3 +1,5 @@
+use crate::key::Key;
+
 /// The shape of a library: how long its pages (and therefore indexes) are, and how many
 /// Feistel rounds map one to the other.
 ///
@@ -22,10 +24,6 @@ pub struct LibraryConfig {
     page_len: usize,
     rounds: u8,
 }
-
-/// Domain-separation context for [`LibraryConfig::canonical_key`]. Changing it changes every
-/// canonical library, so bump the version instead of editing it if the derivation ever changes.
-const CANONICAL_KEY_CONTEXT: &str = "v1 everything you will every do is already here";
 
 impl LibraryConfig {
     /// 16 bytes: an index is 32 hex or 24 base64 characters, small enough to copy by hand,
@@ -60,15 +58,12 @@ impl LibraryConfig {
 
     /// The shared key for this configuration, so everyone using it sees the same library.
     ///
-    /// Derived from the page length and round count, so every distinct configuration is a
-    /// distinct universe. It is public by design: it is not a secret. For a private library,
-    /// use [`BabelLibrary::from_config`](crate::BabelLibrary::from_config) with your own key.
-    pub fn canonical_key(&self) -> [u8; 32] {
-        let mut material = [0u8; 9];
-        let (len_bytes, rounds_byte) = material.split_at_mut(8);
-        len_bytes.copy_from_slice(&(self.page_len as u64).to_le_bytes()); // `to_le_bytes` makes layout identical on every platform
-        rounds_byte.copy_from_slice(&[self.rounds]);
-        blake3::derive_key(CANONICAL_KEY_CONTEXT, &material)
+    /// The public canonical root mixed with the page length and round count, so every distinct
+    /// configuration is a distinct universe. It is public by design: it is not a secret. For a
+    /// private library, use [`BabelLibrary::from_config`](crate::BabelLibrary::from_config)
+    /// with your own key.
+    pub fn canonical_key(&self) -> Key {
+        Key::canonical_root().for_config(self)
     }
 }
 

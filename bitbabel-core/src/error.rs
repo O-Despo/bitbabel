@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
+use crate::encoding::{Base64DecodeError, HexDecodeError};
+
 /// Errors from building or driving the Feistel cipher.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CipherError {
@@ -60,5 +62,48 @@ impl Error for LibraryError {
 impl From<CipherError> for LibraryError {
     fn from(err: CipherError) -> Self {
         LibraryError::Cipher(err)
+    }
+}
+
+/// Errors from building a [`Key`](crate::Key) from bytes or text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyError {
+    /// A key is exactly 32 bytes.
+    InvalidLength(usize),
+    /// The hex text was malformed.
+    Hex(HexDecodeError),
+    /// The base64 text was malformed.
+    Base64(Base64DecodeError),
+}
+
+impl fmt::Display for KeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KeyError::InvalidLength(len) => write!(f, "key must be 32 bytes, got {len}"),
+            KeyError::Hex(_) => write!(f, "invalid hex key"),
+            KeyError::Base64(_) => write!(f, "invalid base64 key"),
+        }
+    }
+}
+
+impl Error for KeyError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            KeyError::Hex(err) => Some(err),
+            KeyError::Base64(err) => Some(err),
+            KeyError::InvalidLength(_) => None,
+        }
+    }
+}
+
+impl From<HexDecodeError> for KeyError {
+    fn from(err: HexDecodeError) -> Self {
+        KeyError::Hex(err)
+    }
+}
+
+impl From<Base64DecodeError> for KeyError {
+    fn from(err: Base64DecodeError) -> Self {
+        KeyError::Base64(err)
     }
 }

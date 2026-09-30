@@ -13,6 +13,8 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<BabelLibrary>();
     assert_send_sync::<Cursor>();
     assert_send_sync::<LibraryConfig>();
+    assert_send_sync::<Key>();
+    assert_send_sync::<KeyError>();
     assert_send_sync::<BabelGuaranteedText>();
     assert_send_sync::<BabelGuaranteedTextDecodeError>();
     assert_send_sync::<CipherError>();
@@ -93,19 +95,19 @@ fn canonical_libraries_agree_and_a_custom_key_differs() {
         .unwrap();
     assert_eq!(a, b);
 
-    let private = BabelLibrary::from_config(config, [9u8; 32]).unwrap();
+    let private = BabelLibrary::from_config(config, Key::from_bytes([9u8; 32])).unwrap();
     assert_ne!(private.page_at(&index).unwrap().bytes(), a.bytes());
 }
 
 #[test]
 fn invalid_custom_configs_are_errors_not_panics() {
-    let key = [0u8; 32];
+    let key = Key::from_bytes([0u8; 32]);
     assert_eq!(
-        BabelLibrary::from_config(LibraryConfig::new(3, 8), key).unwrap_err(),
+        BabelLibrary::from_config(LibraryConfig::new(3, 8), key.clone()).unwrap_err(),
         LibraryError::InvalidPageLen(3)
     );
     assert_eq!(
-        BabelLibrary::from_config(LibraryConfig::new(0, 8), key).unwrap_err(),
+        BabelLibrary::from_config(LibraryConfig::new(0, 8), key.clone()).unwrap_err(),
         LibraryError::InvalidPageLen(0)
     );
     assert_eq!(
@@ -117,29 +119,29 @@ fn invalid_custom_configs_are_errors_not_panics() {
 /// The permanent contract for the canonical libraries. Every value below was recorded from
 /// the implementation, so these catch accidental change; they do not independently prove
 /// the mapping. If one fails, every canonical address has changed: bump the `v1` in
-/// `CANONICAL_KEY_CONTEXT` rather than editing these.
+/// `CANONICAL_KEY_CONTEXT` (in `key.rs`) rather than editing these.
 #[test]
 fn canonical_libraries_are_pinned() {
     let pinned = [
         (
             LibraryConfig::SMALL,
-            "6cc83a72c6518377e45e61b580b5faea4f726a403ebaa5f69fd8b8b83ec744e8",
-            "feb050226204d20b2ca8c57baea45edafd5a4e8bee37ec49824e85785c470112",
+            "d9f476b93a5e357e16bb58b0aa67df7d9a7831aff9d0528fd4eb92f01ef7363b",
+            "c06e6a730dcd11cdec9f2c6e6e0ce2b759593ce6204faae14a81a1f97c1161b4",
         ),
         (
             LibraryConfig::MEDIUM,
-            "234e8fa495d67671d298341b10e13f27f5290f9c8f7639412bedc75f3aeadcfd",
-            "cb6f8a4dcaf37ba064730a9883efbd0b5e1ed3196afab2d4230402951ccaefec",
+            "b568d8dee5e2ed17ddbe64ebd4c4a30213a6cd5a7a3abeedb6b46a9e504efdd8",
+            "be5c7da976f779005213c1e064664ddbddd726804707c1c609178e54db1a5c6c",
         ),
         (
             LibraryConfig::LARGE,
-            "c954b67314541f5d82f6a667089369a9e98c106d7c6768d11d5ea058537db1ea",
-            "761347c14a6d875f2103d97deab477ffa7d70eeb31d356558ac4b467c4993bb8",
+            "c67fd87999786f75f9ff898b51f44b676cf40ec1def305d35d2d94ad79d7e6f0",
+            "1af1a0c9c5b29b99ed21f841a91fdc8c39a44bafa4ac42da6e3d0e2d352d36ce",
         ),
     ];
 
     for (config, key_hex, page0_blake3) in pinned {
-        assert_eq!(hex(&config.canonical_key()), key_hex);
+        assert_eq!(hex(config.canonical_key().as_bytes()), key_hex);
 
         let library = BabelLibrary::canonical(config).unwrap();
         let page = library
@@ -151,7 +153,7 @@ fn canonical_libraries_are_pinned() {
     // Small enough to pin in full.
     let small = BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
     let page = small.page_at(&PageIndex::zero(16)).unwrap();
-    assert_eq!(page.encode_as::<Hex>(), "8905c8704d644adbfa1c44e1f8170c7b");
+    assert_eq!(page.encode_as::<Hex>(), "44cbff84043738da6057166194679870");
 }
 
 #[test]

@@ -2,6 +2,7 @@ use crate::cipher::{BabelMachine, FeistelBytes};
 use crate::config::LibraryConfig;
 use crate::error::LibraryError;
 use crate::index::PageIndex;
+use crate::key::Key;
 use crate::page::Page;
 
 /// Maps a [`PageIndex`] to its [`Page`] and back.
@@ -28,22 +29,30 @@ impl BabelLibrary {
 
     /// A library shaped by `config`, mapped with `key`. Use this for a private library.
     ///
+    /// The key is mixed with `config` (see [`Key::for_config`]), so the same key at a different
+    /// shape is a different, unrelated library.
+    ///
     /// # Errors
     ///
     /// Returns [`LibraryError::InvalidPageLen`] unless `config.page_len()` is even and
     /// non-zero, or [`LibraryError::Cipher`] if `config.rounds()` is zero.
-    pub fn from_config(config: LibraryConfig, key: [u8; 32]) -> Result<Self, LibraryError> {
-        Self::new(BabelMachine::new(key, config.rounds())?, config.page_len())
+    pub fn from_config(config: LibraryConfig, key: Key) -> Result<Self, LibraryError> {
+        let effective = key.for_config(&config);
+        Self::new(
+            BabelMachine::new(*effective.as_bytes(), config.rounds())?,
+            config.page_len(),
+        )
     }
 
-    /// The shared library for `config`, using [`LibraryConfig::canonical_key`]: everyone who
-    /// builds the same configuration sees the same pages.
+    /// The shared library for `config`, using [`Key::canonical_root`]: everyone who builds the
+    /// same configuration sees the same pages. Its machine runs on
+    /// [`LibraryConfig::canonical_key`].
     ///
     /// # Errors
     ///
     /// The same as [`from_config`](Self::from_config).
     pub fn canonical(config: LibraryConfig) -> Result<Self, LibraryError> {
-        Self::from_config(config, config.canonical_key())
+        Self::from_config(config, Key::canonical_root())
     }
 
     pub fn page_len(&self) -> usize {
