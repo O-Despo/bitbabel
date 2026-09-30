@@ -123,18 +123,18 @@ fn canonical_libraries_are_pinned() {
     let pinned = [
         (
             LibraryConfig::SMALL,
-            "790d5017b1eaa1192c3604b50f50ecfb34e12b4ec0a648f0ffe6eda255a11c13",
-            "5fd89ab7b3e7c1b673eaa0e8b8cb522b1623a5d5bc5b401faff9e47cb55132bd",
+            "6cc83a72c6518377e45e61b580b5faea4f726a403ebaa5f69fd8b8b83ec744e8",
+            "feb050226204d20b2ca8c57baea45edafd5a4e8bee37ec49824e85785c470112",
         ),
         (
             LibraryConfig::MEDIUM,
-            "60130c6e43fb95a7f22962127cb6e88edabbff14211160b74c11d17803f7ce7b",
-            "e079bf4a1a05353020bf6996b66be4f3c7326cab706750083ac8f2c9ac99b22e",
+            "234e8fa495d67671d298341b10e13f27f5290f9c8f7639412bedc75f3aeadcfd",
+            "cb6f8a4dcaf37ba064730a9883efbd0b5e1ed3196afab2d4230402951ccaefec",
         ),
         (
             LibraryConfig::LARGE,
-            "17b12ea1fc31815242c599df728b8d57830e38b1192cdf7c9c703ef7b5630161",
-            "4329f2d966e0b26ecfc10552e81aa87e265f68cf943c8c63e3e3d6ca4d880740",
+            "c954b67314541f5d82f6a667089369a9e98c106d7c6768d11d5ea058537db1ea",
+            "761347c14a6d875f2103d97deab477ffa7d70eeb31d356558ac4b467c4993bb8",
         ),
     ];
 
@@ -151,7 +151,7 @@ fn canonical_libraries_are_pinned() {
     // Small enough to pin in full.
     let small = BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
     let page = small.page_at(&PageIndex::zero(16)).unwrap();
-    assert_eq!(page.encode_as::<Hex>(), "d5d57971bc44bb157ab3e3126b9bb278");
+    assert_eq!(page.encode_as::<Hex>(), "8905c8704d644adbfa1c44e1f8170c7b");
 }
 
 #[test]

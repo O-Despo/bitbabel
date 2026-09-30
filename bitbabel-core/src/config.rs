@@ -25,7 +25,7 @@ pub struct LibraryConfig {
 
 /// Domain-separation context for [`LibraryConfig::canonical_key`]. Changing it changes every
 /// canonical library, so bump the version instead of editing it if the derivation ever changes.
-const CANONICAL_KEY_CONTEXT: &str = "everything you will every do is already here";
+const CANONICAL_KEY_CONTEXT: &str = "v1 everything you will every do is already here";
 
 impl LibraryConfig {
     /// 16 bytes: an index is 32 hex or 24 base64 characters, small enough to copy by hand,
