@@ -1,7 +1,7 @@
 //! Runs the `bitbabel` binary and checks what it writes.
 
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -48,7 +48,10 @@ fn run(args: &[&str], stdin: &[u8], key_env: Option<&str>) -> Output {
         command.env("BITBABEL_KEY", key);
     }
     let mut child = command.spawn().unwrap();
-    child.stdin.take().unwrap().write_all(stdin).unwrap();
+    // bitbabel may exit on an error before it reads stdin, which closes the pipe.
+    if let Err(error) = child.stdin.take().unwrap().write_all(stdin) {
+        assert_eq!(error.kind(), ErrorKind::BrokenPipe, "{error}");
+    }
     child.wait_with_output().unwrap()
 }
 
