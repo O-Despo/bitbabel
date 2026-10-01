@@ -1,8 +1,15 @@
 //! `bitbabel`: encodes a file into a `.babel` file, and decodes it back.
 
+mod encode;
+mod error;
+mod files;
+mod key;
+
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+
+use encode::EncodeArgs;
 
 /// Stores a file as a list of pages in the Library of Babel, and gets it back.
 #[derive(Debug, Parser)]
@@ -14,21 +21,29 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Encode a file into a .babel file.
-    Encode,
-    /// Decode a .babel file back into the original file.
+    /// Encode a file into a .babel file
+    Encode(EncodeArgs),
+    /// Decode a .babel file back into the original file
     Decode,
 }
 
 fn main() -> ExitCode {
     // Usage errors exit with 2, from clap.
     let cli = Cli::parse();
-    let name = match cli.command {
-        Command::Encode => "encode",
-        Command::Decode => "decode",
+    let result = match cli.command {
+        Command::Encode(args) => encode::run(args),
+        Command::Decode => {
+            eprintln!("bitbabel: decode is not implemented yet");
+            return ExitCode::FAILURE;
+        }
     };
-    eprintln!("bitbabel: {name} is not implemented yet");
-    ExitCode::FAILURE
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("bitbabel: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 #[cfg(test)]

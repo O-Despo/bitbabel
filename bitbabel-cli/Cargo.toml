@@ -9,6 +9,8 @@ name = "bitbabel"
 path = "src/main.rs"
 
 [dependencies]
+bitbabel-core = { path = "../bitbabel-core" }
+bitbabel-file = { path = "../bitbabel-file" }
 clap = { version = "4.6", features = ["derive"] }
 
 [lints]
