@@ -85,6 +85,9 @@ jobs:
     env:
       CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_LINKER: s390x-linux-gnu-gcc
       CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_RUNNER: qemu-s390x -L /usr/s390x-linux-gnu
+      # The CLI tests spawn the s390x `bitbabel` binary themselves; binfmt runs it
+      # through QEMU without `-L`, so tell every QEMU where the s390x sysroot is.
+      QEMU_LD_PREFIX: /usr/s390x-linux-gnu
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

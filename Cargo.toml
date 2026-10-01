@@ -1,16 +1,9 @@
 [workspace]
-members = ["bitbabel-core", "bitbabel-file"]
+members = ["bitbabel-core", "bitbabel-file", "bitbabel-cli"]
+resolver = "3"
+
+[workspace.package]
+license = "MIT OR Apache-2.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
-
-[package]
-name = "bitbabel"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-bitbabel-core = { path = "bitbabel-core" }
-
-[lints]
-workspace = true

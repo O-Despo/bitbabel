@@ -49,22 +49,6 @@ impl KeyMode {
     }
 }
 
-impl IndexFormat {
-    fn name(self) -> &'static str {
-        match self {
-            IndexFormat::Raw => "raw",
-            IndexFormat::Hex => "hex",
-            IndexFormat::Base64 => "base64",
-        }
-    }
-
-    fn from_name(name: &str) -> Option<Self> {
-        [IndexFormat::Raw, IndexFormat::Hex, IndexFormat::Base64]
-            .into_iter()
-            .find(|format| format.name() == name)
-    }
-}
-
 /// How a file is written: the library size, the key mode, the index-list format, and whether
 /// it carries a checksum.
 ///
