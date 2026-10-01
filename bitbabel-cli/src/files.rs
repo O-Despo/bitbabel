@@ -63,11 +63,12 @@ impl Output {
         *self == Output::Stdout && io::stdout().is_terminal()
     }
 
-    /// Writes `bytes`. An existing file is only replaced when `force` is set.
+    /// Writes `bytes`. An existing regular file is only replaced when `force` is set. Other
+    /// existing paths, like `/dev/null`, are written to without it.
     ///
     /// # Errors
     ///
-    /// [`CliError::OutputExists`] if the file exists and `force` is not set, and
+    /// [`CliError::OutputExists`] if a regular file exists and `force` is not set, and
     /// [`CliError::Write`] if writing fails.
     pub fn write(&self, bytes: &[u8], force: bool) -> Result<(), CliError> {
         let result = match self {
@@ -75,14 +76,17 @@ impl Output {
                 let mut stdout = io::stdout().lock();
                 stdout.write_all(bytes).and_then(|()| stdout.flush())
             }
-            Output::File(path) if force => fs::write(path, bytes),
             // `create_new` checks and creates in one step, so nothing can appear in between.
             Output::File(path) => match File::create_new(path) {
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    return Err(CliError::OutputExists(path.clone()));
+                    if !force && path.is_file() {
+                        return Err(CliError::OutputExists(path.clone()));
+                    }
+                    File::create(path)
                 }
-                file => file.and_then(|mut file| file.write_all(bytes)),
-            },
+                file => file,
+            }
+            .and_then(|mut file| file.write_all(bytes)),
         };
         result.map_err(|error| CliError::Write {
             name: self.name(),

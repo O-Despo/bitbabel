@@ -224,7 +224,123 @@ fn usage_errors_exit_with_2() {
         &["encode", "--size", "huge"],
         &["encode", "--format", "HEX"],
         &["encode", "-c", "-o", "x"],
+        &["decode", "-c", "-o", "x"],
+        &["decode", "--size", "small"],
     ] {
         assert_eq!(run(args, b"", None).status.code(), Some(2), "{args:?}");
     }
+}
+
+#[test]
+fn decode_round_trips_through_files() {
+    let dir = TempDir::new("decode_round_trips_through_files");
+    let input = dir.join("photo.jpg");
+    fs::write(&input, b"hello babel").unwrap();
+    let encoded = run(&["encode", input.to_str().unwrap()], b"", None);
+    assert!(encoded.status.success(), "{}", stderr(&encoded));
+    fs::remove_file(&input).unwrap();
+
+    let babel = dir.join("photo.jpg.babel");
+    let output = run(&["decode", babel.to_str().unwrap()], b"", None);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(fs::read(&input).unwrap(), b"hello babel");
+    assert!(babel.exists(), "the input is never deleted");
+
+    // The decoded file now exists, so a second decode needs -f.
+    let again = run(&["decode", babel.to_str().unwrap()], b"", None);
+    assert_eq!(again.status.code(), Some(1));
+    assert!(stderr(&again).contains("already exists, use -f"));
+}
+
+#[test]
+fn decode_stdin_goes_to_stdout() {
+    let encoded = run(&["encode", "--format", "base64"], b"piped", None);
+    let output = run(&["decode"], &encoded.stdout, None);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"piped");
+}
+
+#[test]
+fn decode_needs_a_babel_name_or_output() {
+    let dir = TempDir::new("decode_needs_a_babel_name_or_output");
+    let input = dir.join("data.bin");
+    let encoded = run(&["encode"], b"data", None);
+    fs::write(&input, &encoded.stdout).unwrap();
+    let input = input.to_str().unwrap();
+
+    let output = run(&["decode", input], b"", None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("does not end in .babel, use -o or -c"));
+
+    let output = run(&["decode", input, "-c"], b"", None);
+    assert_eq!(output.stdout, b"data");
+}
+
+#[test]
+fn decode_with_a_key() {
+    let dir = TempDir::new("decode_with_a_key");
+    let key_path = dir.join("key.bin");
+    fs::write(&key_path, [7; 32]).unwrap();
+    let key_path = key_path.to_str().unwrap();
+    let encoded = run(&["encode", "--key-file", key_path], b"secret", None);
+
+    let output = run(&["decode", "--key-file", key_path], &encoded.stdout, None);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"secret");
+
+    let missing = run(&["decode"], &encoded.stdout, None);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(stderr(&missing).contains("private universe, use --key-file or --private"));
+
+    let wrong = run(
+        &["decode", "--private"],
+        &encoded.stdout,
+        Some(&"ab".repeat(32)),
+    );
+    assert_eq!(wrong.status.code(), Some(1));
+    assert!(wrong.stdout.is_empty());
+}
+
+#[test]
+fn decode_ignores_key_flags_for_a_canonical_file() {
+    let encoded = run(&["encode"], b"open", None);
+
+    // A leftover BITBABEL_KEY is never read without --private.
+    let output = run(&["decode"], &encoded.stdout, Some("not a key"));
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).is_empty());
+
+    let output = run(&["decode", "--private"], &encoded.stdout, None);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"open");
+    assert!(stderr(&output).contains("note: this file uses the canonical key"));
+}
+
+#[test]
+fn a_failed_decode_writes_nothing() {
+    let dir = TempDir::new("a_failed_decode_writes_nothing");
+    let babel = dir.join("a.babel");
+    let mut bytes = run(&["encode", "--size", "small"], b"some data", None).stdout;
+    // Flip a bit in the last index, so the data no longer matches the checksum.
+    *bytes.last_mut().unwrap() ^= 1;
+    fs::write(&babel, &bytes).unwrap();
+
+    let output = run(&["decode", babel.to_str().unwrap()], b"", None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!dir.join("a").exists());
+}
+
+#[test]
+fn decode_rejects_files_that_are_not_babel() {
+    let output = run(&["decode"], b"just some text\n", None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("invalid header"));
+}
+
+#[cfg(unix)]
+#[test]
+fn decode_to_dev_null_needs_no_force() {
+    let encoded = run(&["encode"], b"check me", None);
+    let output = run(&["decode", "-o", "/dev/null"], &encoded.stdout, None);
+    assert!(output.status.success(), "{}", stderr(&output));
 }

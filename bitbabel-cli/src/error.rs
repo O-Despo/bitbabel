@@ -19,6 +19,12 @@ pub enum CliError {
     Write { name: String, error: io::Error },
     /// The output file exists and `-f` was not given.
     OutputExists(PathBuf),
+    /// Decoding would write to a terminal, which can't show raw bytes.
+    TerminalOutput,
+    /// The input doesn't end in `.babel`, so decode can't name the output.
+    NoOutputName(PathBuf),
+    /// The file is from a private universe, but no key flag was given.
+    MissingKey,
     /// `--private` was given but `BITBABEL_KEY` is not set.
     KeyEnvMissing,
     /// A key was the wrong length or not valid hex. `from` is where it came from.
@@ -37,6 +43,21 @@ impl fmt::Display for CliError {
                     f,
                     "{} already exists, use -f to overwrite it",
                     path.display()
+                )
+            }
+            CliError::TerminalOutput => {
+                write!(
+                    f,
+                    "refusing to write raw bytes to a terminal, use -o or a redirect"
+                )
+            }
+            CliError::NoOutputName(path) => {
+                write!(f, "{} does not end in .babel, use -o or -c", path.display())
+            }
+            CliError::MissingKey => {
+                write!(
+                    f,
+                    "this file is from a private universe, use --key-file or --private"
                 )
             }
             CliError::KeyEnvMissing => write!(f, "--private needs {KEY_ENV} to be set"),

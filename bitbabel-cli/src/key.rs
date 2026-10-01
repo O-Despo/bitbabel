@@ -24,6 +24,11 @@ pub struct KeyArgs {
 }
 
 impl KeyArgs {
+    /// Whether either key flag was given.
+    pub fn is_given(&self) -> bool {
+        self.key_file.is_some() || self.private
+    }
+
     /// The key the flags ask for, or `None` for the canonical universe. `--key-file` wins
     /// over `--private`.
     ///
