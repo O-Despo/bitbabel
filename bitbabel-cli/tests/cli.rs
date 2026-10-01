@@ -226,6 +226,7 @@ fn usage_errors_exit_with_2() {
         &["encode", "-c", "-o", "x"],
         &["decode", "-c", "-o", "x"],
         &["decode", "--size", "small"],
+        &["keygen"],
     ] {
         assert_eq!(run(args, b"", None).status.code(), Some(2), "{args:?}");
     }
@@ -343,4 +344,69 @@ fn decode_to_dev_null_needs_no_force() {
     let encoded = run(&["encode"], b"check me", None);
     let output = run(&["decode", "-o", "/dev/null"], &encoded.stdout, None);
     assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn keygen_writes_a_32_byte_key_that_works() {
+    let dir = TempDir::new("keygen_writes_a_32_byte_key_that_works");
+    let key_path = dir.join("my.key");
+    let key_path_str = key_path.to_str().unwrap();
+
+    let output = run(&["keygen", key_path_str], b"", None);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(output.stdout.is_empty(), "the key is never printed");
+    let key = Key::from_slice(&fs::read(&key_path).unwrap()).unwrap();
+
+    let encoded = run(&["encode", "--key-file", key_path_str], b"secret", None);
+    let file = BabelFile::from_bytes(&encoded.stdout).unwrap();
+    assert_eq!(file.settings().key_mode(), KeyMode::Custom);
+    assert_eq!(file.decode(Some(&key)).unwrap(), b"secret");
+
+    let decoded = run(
+        &["decode", "--key-file", key_path_str],
+        &encoded.stdout,
+        None,
+    );
+    assert_eq!(decoded.stdout, b"secret");
+}
+
+#[test]
+fn two_keygens_differ() {
+    let dir = TempDir::new("two_keygens_differ");
+    let (a, b) = (dir.join("a.key"), dir.join("b.key"));
+    run(&["keygen", a.to_str().unwrap()], b"", None);
+    run(&["keygen", b.to_str().unwrap()], b"", None);
+    assert_ne!(fs::read(a).unwrap(), fs::read(b).unwrap());
+}
+
+#[test]
+fn keygen_needs_force_to_overwrite() {
+    let dir = TempDir::new("keygen_needs_force_to_overwrite");
+    let key_path = dir.join("my.key");
+    let key_path_str = key_path.to_str().unwrap();
+    run(&["keygen", key_path_str], b"", None);
+    let first = fs::read(&key_path).unwrap();
+
+    let again = run(&["keygen", key_path_str], b"", None);
+    assert_eq!(again.status.code(), Some(1));
+    assert!(stderr(&again).contains("already exists, use -f"));
+    assert_eq!(fs::read(&key_path).unwrap(), first);
+
+    let forced = run(&["keygen", key_path_str, "-f"], b"", None);
+    assert!(forced.status.success(), "{}", stderr(&forced));
+    let second = fs::read(&key_path).unwrap();
+    assert_eq!(second.len(), 32);
+    assert_ne!(second, first);
+}
+
+#[cfg(unix)]
+#[test]
+fn keygen_file_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new("keygen_file_is_private");
+    let key_path = dir.join("my.key");
+    run(&["keygen", key_path.to_str().unwrap()], b"", None);
+    let mode = fs::metadata(&key_path).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
 }

@@ -31,6 +31,8 @@ pub enum CliError {
     Key { from: String, error: KeyError },
     /// Encoding or decoding the file failed.
     File(FileError),
+    /// The OS random source failed.
+    Random(getrandom::Error),
 }
 
 impl fmt::Display for CliError {
@@ -63,6 +65,7 @@ impl fmt::Display for CliError {
             CliError::KeyEnvMissing => write!(f, "--private needs {KEY_ENV} to be set"),
             CliError::Key { from, error } => write!(f, "bad key in {from}: {error}"),
             CliError::File(error) => write!(f, "{error}"),
+            CliError::Random(error) => write!(f, "cannot get random bytes from the OS: {error}"),
         }
     }
 }

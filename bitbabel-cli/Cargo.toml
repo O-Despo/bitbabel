@@ -12,6 +12,7 @@ path = "src/main.rs"
 bitbabel-core = { path = "../bitbabel-core" }
 bitbabel-file = { path = "../bitbabel-file" }
 clap = { version = "4.6", features = ["derive"] }
+getrandom = "0.4"
 
 [lints]
 workspace = true
