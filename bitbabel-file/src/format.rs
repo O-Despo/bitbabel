@@ -21,6 +21,39 @@ pub enum IndexFormat {
 }
 
 impl IndexFormat {
+    /// The format's name, as written in a file header.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bitbabel_file::IndexFormat;
+    ///
+    /// assert_eq!(IndexFormat::Hex.name(), "hex");
+    /// ```
+    pub fn name(self) -> &'static str {
+        match self {
+            IndexFormat::Raw => "raw",
+            IndexFormat::Hex => "hex",
+            IndexFormat::Base64 => "base64",
+        }
+    }
+
+    /// The format with this [`name`](Self::name). Only the exact lowercase name parses.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bitbabel_file::IndexFormat;
+    ///
+    /// assert_eq!(IndexFormat::from_name("hex"), Some(IndexFormat::Hex));
+    /// assert_eq!(IndexFormat::from_name("HEX"), None);
+    /// ```
+    pub fn from_name(name: &str) -> Option<Self> {
+        [IndexFormat::Raw, IndexFormat::Hex, IndexFormat::Base64]
+            .into_iter()
+            .find(|format| format.name() == name)
+    }
+
     /// Writes `indices`, each of which must be `page_len` bytes.
     ///
     /// # Errors
