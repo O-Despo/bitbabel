@@ -1,5 +1,10 @@
 # BitBabel
 
+[![CI](https://github.com/O-Despo/bitbabel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/O-Despo/bitbabel/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+![Rust](https://img.shields.io/badge/rust-stable%20%C2%B7%20edition%202024-orange?logo=rust)
+![Platforms](https://img.shields.io/badge/tested%20on-linux%20%C2%B7%20macOS%20%C2%B7%20windows%20%C2%B7%2032--bit%20%C2%B7%20big--endian-blue)
+
 Everything you will ever do is already right here.
 
 This project was inspired by the original [Library of Babel](https://libraryofbabel.info) made by Jonathan Basile. It was clearly a project that took lots of care, and using it is what inspired me to do this project.
