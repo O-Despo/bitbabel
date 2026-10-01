@@ -3,6 +3,7 @@ name = "bitbabel-cli"
 version = "0.1.0"
 edition = "2024"
 description = "The bitbabel command: encodes a file into a .babel file and decodes it back"
+license.workspace = true
 
 [[bin]]
 name = "bitbabel"
