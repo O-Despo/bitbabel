@@ -30,7 +30,7 @@ enum Command {
     /// Decode a .babel file back into the original file
     #[command(after_help = DECODE_HELP)]
     Decode(DecodeArgs),
-    /// Make a random key for a private universe
+    /// Make a random key for a private library
     #[command(after_help = KEYGEN_HELP)]
     Keygen(KeygenArgs),
 }

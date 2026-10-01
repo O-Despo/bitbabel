@@ -11,14 +11,14 @@ use crate::error::CliError;
 /// The environment variable `--private` reads: a key as 64 hex characters.
 pub const KEY_ENV: &str = "BITBABEL_KEY";
 
-/// Which universe to use. With neither flag, it is the canonical one.
+/// Which library to use. With neither flag, it is the canonical one.
 #[derive(Debug, Args)]
 pub struct KeyArgs {
-    /// Use the private universe named by the 32-byte key in this file
+    /// Use the private library named by the 32-byte key in this file
     #[arg(long, value_name = "PATH")]
     key_file: Option<PathBuf>,
 
-    /// Use the private universe named by BITBABEL_KEY (64 hex characters)
+    /// Use the private library named by BITBABEL_KEY (64 hex characters)
     #[arg(long)]
     private: bool,
 }
@@ -29,7 +29,7 @@ impl KeyArgs {
         self.key_file.is_some() || self.private
     }
 
-    /// The key the flags ask for, or `None` for the canonical universe. `--key-file` wins
+    /// The key the flags ask for, or `None` for the canonical library. `--key-file` wins
     /// over `--private`.
     ///
     /// # Errors

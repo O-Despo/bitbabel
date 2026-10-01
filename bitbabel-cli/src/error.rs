@@ -23,7 +23,7 @@ pub enum CliError {
     TerminalOutput,
     /// The input doesn't end in `.babel`, so decode can't name the output.
     NoOutputName(PathBuf),
-    /// The file is from a private universe, but no key flag was given.
+    /// The file is from a private library, but no key flag was given.
     MissingKey,
     /// `--private` was given but `BITBABEL_KEY` is not set.
     KeyEnvMissing,
@@ -59,7 +59,7 @@ impl fmt::Display for CliError {
             CliError::MissingKey => {
                 write!(
                     f,
-                    "this file is from a private universe, use --key-file or --private"
+                    "this file is from a private library, use --key-file or --private"
                 )
             }
             CliError::KeyEnvMissing => write!(f, "--private needs {KEY_ENV} to be set"),

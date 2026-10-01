@@ -1,4 +1,4 @@
-//! `bitbabel keygen`: a random key for a private universe.
+//! `bitbabel keygen`: a random key for a private library.
 
 use std::fs::OpenOptions;
 use std::io::{self, Write};

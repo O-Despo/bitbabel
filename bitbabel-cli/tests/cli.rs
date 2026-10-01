@@ -291,7 +291,7 @@ fn decode_with_a_key() {
 
     let missing = run(&["decode"], &encoded.stdout, None);
     assert_eq!(missing.status.code(), Some(1));
-    assert!(stderr(&missing).contains("private universe, use --key-file or --private"));
+    assert!(stderr(&missing).contains("private library, use --key-file or --private"));
 
     let wrong = run(
         &["decode", "--private"],

@@ -62,7 +62,7 @@ impl LibraryConfig {
     /// The shared key for this configuration, so everyone using it sees the same library.
     ///
     /// The public canonical root mixed with the page length and round count, so every distinct
-    /// configuration is a distinct universe. It is public by design: it is not a secret. For a
+    /// configuration is a distinct library. It is public by design: it is not a secret. For a
     /// private library, use [`BabelLibrary::from_config`](crate::BabelLibrary::from_config)
     /// with your own key.
     pub fn canonical_key(&self) -> Key {
