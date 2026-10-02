@@ -16,5 +16,5 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let block = Block::bordered()
         .title(format!(" {library} "))
         .title(Line::from(" no bookmark file ").right_aligned());
-    frame.render_widget(Paragraph::new("q to quit").block(block), area);
+    frame.render_widget(Paragraph::new("s start over   q quit").block(block), area);
 }

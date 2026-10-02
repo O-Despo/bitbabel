@@ -96,8 +96,15 @@ impl App {
                     vec![]
                 }
             },
-            Mode::Explore => explore::handle_key(key),
+            Mode::Explore => explore::handle_key(self, key),
         }
+    }
+
+    /// Goes back to a fresh setup screen: a new session with no library, no page and no
+    /// history. A key from the command line is not carried over.
+    fn start_over(&mut self) {
+        self.mode = Mode::Setup(SetupForm::new(None));
+        self.library = None;
     }
 
     /// `len` random bytes from the injected source.
@@ -275,5 +282,29 @@ mod test {
             app.library().unwrap().key(),
             Some(&Key::from_bytes([9; 32]))
         );
+    }
+
+    #[test]
+    fn s_starts_over_from_explore() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: Some(Key::from_bytes([1; 32])),
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        assert!(app.handle_key(press(KeyCode::Char('s'))).is_empty());
+        assert!(app.library().is_none());
+        let Mode::Setup(form) = app.mode() else {
+            panic!("should be on the setup screen");
+        };
+        assert_eq!(form.size(), LibraryConfig::MEDIUM);
+        assert!(form.fixed_key().is_none());
+    }
+
+    #[test]
+    fn explore_ignores_keys_with_modifiers() {
+        let mut app = app();
+        let key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT);
+        assert!(app.handle_key(key).is_empty());
+        assert!(app.library().is_some());
     }
 }
