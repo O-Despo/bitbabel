@@ -43,6 +43,7 @@ mod test {
 
     use super::*;
     use crate::config::TuiConfig;
+    use crate::files::MemFiles;
     use crate::random::RandomError;
     use bitbabel_core::LibraryConfig;
 
@@ -68,13 +69,18 @@ mod test {
 
     #[test]
     fn too_small_says_so_in_every_mode() {
-        let setup = App::new(TuiConfig::default(), fake_random);
+        let setup = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
         let explore = App::new(
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
             },
             fake_random,
+            Box::new(MemFiles::default()),
         );
         for app in [setup, explore] {
             assert!(render(&app, 79, 24).contains("terminal too small (need 80x24, have 79x24)"));
@@ -91,6 +97,7 @@ mod test {
                 key: None,
             },
             fake_random,
+            Box::new(MemFiles::default()),
         );
         let screen = render(&app, 80, 24);
         let title = screen.lines().next().unwrap();
@@ -100,7 +107,11 @@ mod test {
 
     #[test]
     fn setup_lists_the_sizes_and_the_start_button() {
-        let app = App::new(TuiConfig::default(), fake_random);
+        let app = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
         let screen = render(&app, 80, 24);
         for text in [
             "small (16 B)",
@@ -115,9 +126,57 @@ mod test {
 
     #[test]
     fn a_resize_is_drawn_at_the_new_size() {
-        let mut app = App::new(TuiConfig::default(), fake_random);
+        let mut app = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
         assert!(render(&app, 60, 20).contains("too small"));
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(render(&app, 120, 40).contains("medium · canonical"));
+    }
+
+    #[test]
+    fn setup_shows_the_key_file_check_inline() {
+        let files = MemFiles::default().with("my.key", &[1; 32]);
+        let mut app = App::new(TuiConfig::default(), fake_random, Box::new(files));
+        let press = |app: &mut App, code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Right);
+        press(&mut app, KeyCode::Down);
+        assert!(render(&app, 80, 24).contains("path:"));
+
+        for c in "my.key".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        assert!(render(&app, 80, 24).contains("✓ loaded a576-7c85-fdef-3c24"));
+
+        press(&mut app, KeyCode::Up);
+        press(&mut app, KeyCode::Char('x'));
+        press(&mut app, KeyCode::Enter);
+        assert!(render(&app, 80, 24).contains("✗ cannot read my.keyx"));
+    }
+
+    #[test]
+    fn explore_indicator_shows_the_fingerprint_not_the_key() {
+        let app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: Some(bitbabel_core::Key::from_bytes([1; 32])),
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let screen = render(&app, 80, 24);
+        assert!(
+            screen
+                .lines()
+                .next()
+                .unwrap()
+                .contains("small · key a576-7c85-fdef-3c24")
+        );
     }
 }

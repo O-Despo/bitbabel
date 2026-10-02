@@ -1,7 +1,7 @@
 //! Which library the session is in. It is shown in every mode, because the same index in
 //! another library is a different page and a wrong key gives no error.
 
-use bitbabel_core::{Key, LibraryConfig};
+use bitbabel_core::{Encoding, Hex, Key, LibraryConfig};
 
 /// A size and a key: the pair that names one library.
 #[derive(Debug, Clone)]
@@ -30,15 +30,22 @@ impl LibraryChoice {
         self.key.as_ref()
     }
 
-    /// The indicator text: `medium · canonical`. The key is never shown.
+    /// The indicator text: `medium · canonical`, or `medium · key 3f9a-1c07-e2b8-4d10`. The
+    /// key itself is never shown, only its fingerprint.
     pub fn label(&self) -> String {
         let size = self.size.name().unwrap_or("custom size");
-        let key = match self.key {
-            Some(_) => "custom key",
-            None => "canonical",
-        };
-        format!("{size} · {key}")
+        match &self.key {
+            Some(key) => format!("{size} · key {}", fingerprint_text(key)),
+            None => format!("{size} · canonical"),
+        }
     }
+}
+
+/// A key's fingerprint as 16 hex characters in groups of four: `3f9a-1c07-e2b8-4d10`.
+pub fn fingerprint_text(key: &Key) -> String {
+    let hex: Vec<char> = Hex::encode(&key.fingerprint()).chars().collect();
+    let groups: Vec<String> = hex.chunks(4).map(|group| group.iter().collect()).collect();
+    groups.join("-")
 }
 
 #[cfg(test)]
@@ -50,12 +57,19 @@ mod test {
         let canonical = LibraryChoice::new(LibraryConfig::MEDIUM, None);
         assert_eq!(canonical.label(), "medium · canonical");
         let custom = LibraryChoice::new(LibraryConfig::SMALL, Some(Key::from_bytes([1; 32])));
-        assert_eq!(custom.label(), "small · custom key");
+        assert_eq!(custom.label(), "small · key a576-7c85-fdef-3c24");
     }
 
     #[test]
     fn label_never_shows_the_key() {
-        let custom = LibraryChoice::new(LibraryConfig::SMALL, Some(Key::from_bytes([0x77; 32])));
-        assert!(!custom.label().contains("77"));
+        let key = Key::from_bytes([0x77; 32]);
+        let label = LibraryChoice::new(LibraryConfig::SMALL, Some(key)).label();
+        assert!(!label.contains("7777"));
+    }
+
+    #[test]
+    fn fingerprint_is_four_groups_of_four() {
+        let text = fingerprint_text(&Key::from_bytes([1; 32]));
+        assert_eq!(text, "a576-7c85-fdef-3c24");
     }
 }

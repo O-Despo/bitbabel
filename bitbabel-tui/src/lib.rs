@@ -5,6 +5,7 @@
 mod app;
 mod config;
 mod error;
+mod files;
 mod random;
 mod ui;
 
@@ -14,6 +15,7 @@ use ratatui::crossterm::event::{self, Event};
 use app::{App, Effect};
 pub use config::TuiConfig;
 pub use error::TuiError;
+pub use files::{Files, StdFiles};
 pub use random::{RandomError, RandomFn, os_random};
 
 /// Runs the explorer until the user quits.
@@ -26,7 +28,10 @@ pub use random::{RandomError, RandomFn, os_random};
 /// [`TuiError::Terminal`] if the terminal cannot be set up, drawn on or read from.
 pub fn run(config: TuiConfig) -> Result<(), TuiError> {
     let mut terminal = ratatui::try_init()?;
-    let result = event_loop(&mut terminal, &mut App::new(config, os_random));
+    let result = event_loop(
+        &mut terminal,
+        &mut App::new(config, os_random, Box::new(StdFiles)),
+    );
     let restored = ratatui::try_restore();
     result?;
     restored?;

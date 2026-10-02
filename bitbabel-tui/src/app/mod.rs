@@ -9,10 +9,11 @@ mod setup;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
-pub use library::LibraryChoice;
-pub use setup::{Row, SIZES, SetupForm};
+pub use library::{LibraryChoice, fingerprint_text};
+pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
 use crate::config::TuiConfig;
+use crate::files::Files;
 use crate::random::{RandomError, RandomFn};
 use setup::Outcome;
 
@@ -26,6 +27,17 @@ pub enum Mode {
     Explore,
 }
 
+/// The character a key types into a text box, if it types one. Ctrl or Alt alone are
+/// shortcuts, not typing; Ctrl+Alt together is how AltGr reports `@`, `~` and `\` on Windows.
+fn typed_char(key: &KeyEvent) -> Option<char> {
+    let KeyCode::Char(c) = key.code else {
+        return None;
+    };
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    (ctrl == alt).then_some(c)
+}
+
 /// The whole state of the explorer.
 pub struct App {
     mode: Mode,
@@ -34,13 +46,14 @@ pub struct App {
     // Used by the random page key.
     #[allow(dead_code)]
     random: RandomFn,
+    files: Box<dyn Files>,
 }
 
 impl App {
     /// A new app. With a size it starts exploring that library (canonical unless there is
     /// a key); without one it opens the setup screen. `random` is where every random byte
-    /// comes from.
-    pub fn new(config: TuiConfig, random: RandomFn) -> Self {
+    /// comes from, and `files` is how it reads files.
+    pub fn new(config: TuiConfig, random: RandomFn, files: Box<dyn Files>) -> Self {
         let (mode, library) = match config.size {
             Some(size) => (Mode::Explore, Some(LibraryChoice::new(size, config.key))),
             None => (Mode::Setup(SetupForm::new(config.key)), None),
@@ -49,6 +62,7 @@ impl App {
             mode,
             library,
             random,
+            files,
         }
     }
 
@@ -74,7 +88,7 @@ impl App {
             return vec![Effect::Quit];
         }
         match &mut self.mode {
-            Mode::Setup(form) => match form.handle_key(key) {
+            Mode::Setup(form) => match form.handle_key(key, self.files.as_ref()) {
                 Outcome::Editing(effects) => effects,
                 Outcome::Start(library) => {
                     self.library = Some(library);
@@ -105,6 +119,7 @@ mod test {
     use ratatui::crossterm::event::KeyEventState;
 
     use super::*;
+    use crate::files::MemFiles;
 
     fn fake_random(buf: &mut [u8]) -> Result<(), RandomError> {
         buf.fill(0xAB);
@@ -120,7 +135,7 @@ mod test {
             size: Some(LibraryConfig::SMALL),
             key: None,
         };
-        App::new(config, fake_random)
+        App::new(config, fake_random, Box::new(MemFiles::default()))
     }
 
     fn press(code: KeyCode) -> KeyEvent {
@@ -166,7 +181,11 @@ mod test {
     #[test]
     fn random_bytes_come_from_the_injected_source() {
         assert_eq!(app().random_bytes(3).unwrap(), [0xAB; 3]);
-        let failing = App::new(TuiConfig::default(), failing_random);
+        let failing = App::new(
+            TuiConfig::default(),
+            failing_random,
+            Box::new(MemFiles::default()),
+        );
         assert_eq!(
             failing.random_bytes(3).unwrap_err(),
             RandomError::new("blocked")
@@ -188,13 +207,17 @@ mod test {
             size: Some(LibraryConfig::LARGE),
             key: Some(Key::from_bytes([1; 32])),
         };
-        let app = App::new(config, fake_random);
+        let app = App::new(config, fake_random, Box::new(MemFiles::default()));
         assert!(app.library().unwrap().key().is_some());
     }
 
     #[test]
     fn no_size_opens_setup_and_enter_starts_exploring() {
-        let mut app = App::new(TuiConfig::default(), fake_random);
+        let mut app = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
         assert!(matches!(app.mode(), Mode::Setup(_)));
         assert!(app.library().is_none());
 
@@ -205,9 +228,52 @@ mod test {
 
     #[test]
     fn q_quits_from_setup_and_ctrl_c_too() {
-        let mut app = App::new(TuiConfig::default(), fake_random);
+        let mut app = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(app.handle_key(ctrl_c), [Effect::Quit]);
         assert_eq!(app.handle_key(press(KeyCode::Char('q'))), [Effect::Quit]);
+    }
+
+    #[test]
+    fn typed_char_follows_the_modifier_rules() {
+        let key = |modifiers| KeyEvent::new(KeyCode::Char('a'), modifiers);
+        assert_eq!(typed_char(&key(KeyModifiers::NONE)), Some('a'));
+        assert_eq!(typed_char(&key(KeyModifiers::SHIFT)), Some('a'));
+        assert_eq!(typed_char(&key(KeyModifiers::CONTROL)), None);
+        assert_eq!(typed_char(&key(KeyModifiers::ALT)), None);
+        let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+        assert_eq!(typed_char(&key(altgr)), Some('a'));
+        assert_eq!(typed_char(&press(KeyCode::Enter)), None);
+    }
+
+    #[test]
+    fn a_key_file_from_the_setup_screen_names_the_library() {
+        let files = MemFiles::default().with("my.key", &[9; 32]);
+        let mut app = App::new(TuiConfig::default(), fake_random, Box::new(files));
+        let keys = [
+            KeyCode::Down,
+            KeyCode::Right,
+            KeyCode::Down,
+            KeyCode::Char('m'),
+            KeyCode::Char('y'),
+            KeyCode::Char('.'),
+            KeyCode::Char('k'),
+            KeyCode::Char('e'),
+            KeyCode::Char('y'),
+            KeyCode::Enter,
+            KeyCode::Enter,
+        ];
+        for code in keys {
+            assert!(app.handle_key(press(code)).is_empty());
+        }
+        assert!(matches!(app.mode(), Mode::Explore));
+        assert_eq!(
+            app.library().unwrap().key(),
+            Some(&Key::from_bytes([9; 32]))
+        );
     }
 }
