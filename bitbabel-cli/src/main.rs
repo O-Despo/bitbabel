@@ -6,6 +6,8 @@ mod error;
 mod files;
 mod key;
 mod keygen;
+#[cfg(feature = "tui")]
+mod tui;
 
 use std::process::ExitCode;
 
@@ -14,6 +16,8 @@ use clap::{Parser, Subcommand};
 use decode::DecodeArgs;
 use encode::EncodeArgs;
 use keygen::KeygenArgs;
+#[cfg(feature = "tui")]
+use tui::TuiArgs;
 
 /// Stores a file as a list of pages in the Library of Babel, and gets it back.
 #[derive(Debug, Parser)]
@@ -33,6 +37,9 @@ enum Command {
     /// Make a random key for a private library
     #[command(after_help = KEYGEN_HELP)]
     Keygen(KeygenArgs),
+    /// Explore the library in the terminal
+    #[cfg(feature = "tui")]
+    Tui(TuiArgs),
 }
 
 /// Shown after `bitbabel decode --help`.
@@ -61,6 +68,8 @@ fn main() -> ExitCode {
         Command::Encode(args) => encode::run(args),
         Command::Decode(args) => decode::run(args),
         Command::Keygen(args) => keygen::run(args),
+        #[cfg(feature = "tui")]
+        Command::Tui(args) => tui::run(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

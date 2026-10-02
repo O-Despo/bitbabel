@@ -161,6 +161,21 @@ fn canonical_libraries_are_pinned() {
     assert_eq!(page.encode_as::<Hex>(), "44cbff84043738da6057166194679870");
 }
 
+/// The permanent contract for key fingerprints. Bookmark files store them, so a change
+/// breaks every file. The values were recorded from the implementation when it was added.
+/// If one fails, bump the `v1` in `FINGERPRINT_CONTEXT` (in `key.rs`) rather than editing these.
+#[test]
+fn key_fingerprints_are_pinned() {
+    let pinned = [
+        (Key::from_bytes([0x01; 32]), "a5767c85fdef3c24"),
+        (Key::canonical_root(), "3a545c37ea506e6d"),
+    ];
+    for (key, fingerprint_hex) in pinned {
+        assert_eq!(hex(&key.fingerprint()), fingerprint_hex);
+        assert_eq!(key.fingerprint().len(), FINGERPRINT_LEN);
+    }
+}
+
 #[test]
 fn medium_page_is_exactly_3200_characters_and_decodes_to_its_index() {
     let config = LibraryConfig::MEDIUM;

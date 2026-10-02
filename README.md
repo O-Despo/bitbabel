@@ -93,8 +93,17 @@ That gives you the `bitbabel` command.
 | `bitbabel encode FILE` | Stores `FILE` in the library and writes `FILE.babel` |
 | `bitbabel decode FILE.babel` | Gets the original back and writes `FILE` |
 | `bitbabel keygen PATH` | Makes a random key for a private library |
+| `bitbabel tui` | Explores a library in the terminal (see [bitbabel-tui](bitbabel-tui/README.md)) |
 
 Every command has `--help`.
+
+### Explore in the terminal
+
+```sh
+bitbabel tui
+```
+
+This opens a start screen where you pick a size and a key, then shows which library you are in. It is on by default; `cargo install --path bitbabel-cli --no-default-features` leaves it out. See [bitbabel-tui/README.md](bitbabel-tui/README.md).
 
 ### Encode and decode
 
@@ -200,12 +209,13 @@ bitbabel encode x --key-file new.key -f
 
 ## Code layout
 
-It's a Cargo workspace with three crates. Each one builds on the one above it.
+It's a Cargo workspace with four crates. Each one builds on the one above it.
 
 | Crate | What it is |
 |---|---|
 | `bitbabel-core/` | The library itself: index ↔ page, keys, the default sizes, text encodings, and search. No file IO and no randomness. |
 | `bitbabel-file/` | Turns bytes into a list of page indices and back: padding, the header, the index formats and the checksum. Still no file IO. |
+| `bitbabel-tui/` | The terminal explorer. It owns all terminal IO. |
 | `bitbabel-cli/` | The `bitbabel` command. This is where files, stdin, stdout and keys are handled. |
 
 Search in `bitbabel-core` works by building a page that contains what you're looking for, then asking for its index. It's not in the CLI yet.

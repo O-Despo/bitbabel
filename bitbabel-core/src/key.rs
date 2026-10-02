@@ -15,6 +15,12 @@ const UNIVERSE_CONTEXT: &str = "v1 bitbabel universe key";
 /// Length of a key in bytes: BLAKE3's keyed mode takes exactly 256 bits.
 const KEY_LEN: usize = 32;
 
+/// Frozen: bookmark files store fingerprints made with this. A change would be `v2`.
+const FINGERPRINT_CONTEXT: &str = "v1 bitbabel key fingerprint";
+
+/// The length of [`Key::fingerprint`], in bytes.
+pub const FINGERPRINT_LEN: usize = 8;
+
 /// A 256-bit key. Together with a [`LibraryConfig`] it names one library.
 ///
 /// A key is not used directly: [`for_config`](Self::for_config) mixes in the page length and
@@ -81,6 +87,27 @@ impl Key {
     /// everyone who builds the same configuration sees the same pages.
     pub fn canonical_root() -> Self {
         Key(blake3::derive_key(CANONICAL_KEY_CONTEXT, b""))
+    }
+
+    /// A short one-way name for the key: the first 8 bytes of a BLAKE3 hash of its 32 bytes,
+    /// under a context of its own.
+    ///
+    /// The same key always gives the same fingerprint, and the fingerprint does not reveal
+    /// the key or the library the key makes. It covers the key only, not a size. Use it to
+    /// tell keys apart, for example in a file that must not store the key.
+    ///
+    /// ```
+    /// use bitbabel_core::{Hex, Encoding, Key};
+    ///
+    /// let key = Key::from_bytes([1; 32]);
+    /// assert_eq!(key.fingerprint(), key.fingerprint());
+    /// assert_eq!(Hex::encode(&key.fingerprint()).len(), 16);
+    /// ```
+    pub fn fingerprint(&self) -> [u8; FINGERPRINT_LEN] {
+        let hash = blake3::derive_key(FINGERPRINT_CONTEXT, &self.0);
+        let mut fingerprint = [0u8; FINGERPRINT_LEN];
+        fingerprint.copy_from_slice(&hash[..FINGERPRINT_LEN]);
+        fingerprint
     }
 
     /// The key that actually drives a library of shape `config`: this key mixed with the page
@@ -196,6 +223,21 @@ mod test {
                 .unwrap()
         };
         assert_ne!(page(8).bytes(), page(9).bytes());
+    }
+
+    #[test]
+    fn fingerprint_is_stable_and_tells_keys_apart() {
+        let key = Key::from_bytes([1; 32]);
+        assert_eq!(key.fingerprint(), key.fingerprint());
+        assert_ne!(key.fingerprint(), Key::from_bytes([2; 32]).fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_is_not_a_slice_of_the_key_or_the_library_key() {
+        let key = Key::from_bytes([1; 32]);
+        assert_ne!(key.fingerprint(), key.as_bytes()[..FINGERPRINT_LEN]);
+        let library_key = key.for_config(&LibraryConfig::SMALL);
+        assert_ne!(key.fingerprint(), library_key.as_bytes()[..FINGERPRINT_LEN]);
     }
 
     #[test]

@@ -12,8 +12,14 @@ path = "src/main.rs"
 [dependencies]
 bitbabel-core = { path = "../bitbabel-core" }
 bitbabel-file = { path = "../bitbabel-file" }
+bitbabel-tui = { path = "../bitbabel-tui", optional = true }
 clap = { version = "4.6", features = ["derive"] }
 getrandom = "0.4"
+
+[features]
+default = ["tui"]
+# The `tui` subcommand. `--no-default-features` leaves out ratatui.
+tui = ["dep:bitbabel-tui"]
 
 [lints]
 workspace = true
