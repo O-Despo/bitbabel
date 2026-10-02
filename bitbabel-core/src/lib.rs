@@ -13,6 +13,8 @@
 //! - [`LibraryConfig`] names ready-made shapes ([`SMALL`](LibraryConfig::SMALL),
 //!   [`MEDIUM`](LibraryConfig::MEDIUM), [`LARGE`](LibraryConfig::LARGE)), each with a shared
 //!   canonical key so everyone sees the same library.
+//! - [`PageIndex::location`] gives a display address ([`Location`]): hexagon, wall, shelf and
+//!   volume, after Borges' story.
 //! - [`Encoding`] types ([`Hex`], [`Base64`], [`Utf8`], ...) render a page's bytes.
 //!   [`BabelGuaranteedText`] shows each byte as exactly one visible character.
 //!
@@ -45,6 +47,7 @@ mod error;
 mod index;
 mod key;
 mod library;
+mod location;
 mod page;
 mod search;
 
@@ -61,5 +64,6 @@ pub use error::{
 pub use index::PageIndex;
 pub use key::{FINGERPRINT_LEN, Key};
 pub use library::BabelLibrary;
+pub use location::Location;
 pub use page::Page;
 pub use search::{Fill, Placement, SearchOptions, SearchResult};

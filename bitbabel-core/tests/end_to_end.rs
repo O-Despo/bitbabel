@@ -14,6 +14,7 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<Cursor>();
     assert_send_sync::<LibraryConfig>();
     assert_send_sync::<Key>();
+    assert_send_sync::<Location>();
     assert_send_sync::<KeyError>();
     assert_send_sync::<PageIndexError>();
     assert_send_sync::<ConfigNameError>();
