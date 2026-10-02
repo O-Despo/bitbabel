@@ -59,7 +59,8 @@ pub use encoding::{
     HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
 };
 pub use error::{
-    CipherError, ConfigNameError, KeyError, LibraryError, PageIndexError, SearchError,
+    CipherError, ConfigNameError, KeyError, LibraryError, LocationError, PageIndexError,
+    SearchError,
 };
 pub use index::PageIndex;
 pub use key::{FINGERPRINT_LEN, Key};
