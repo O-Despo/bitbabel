@@ -8,6 +8,8 @@ readme = "README.md"
 
 [dependencies]
 bitbabel-core = { path = "../bitbabel-core" }
+ratatui = "0.30"
+getrandom = "0.4"
 
 [lints]
 workspace = true

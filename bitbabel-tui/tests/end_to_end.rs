@@ -9,3 +9,8 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<TuiConfig>();
     assert_send_sync::<TuiError>();
 }
+
+#[test]
+fn random_error_is_send_and_sync() {
+    assert_send_sync::<RandomError>();
+}
