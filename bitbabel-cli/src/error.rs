@@ -33,6 +33,12 @@ pub enum CliError {
     File(FileError),
     /// The OS random source failed.
     Random(getrandom::Error),
+    /// The `tui` subcommand needs a terminal on both stdin and stdout.
+    #[cfg(feature = "tui")]
+    NotTerminal,
+    /// The terminal explorer failed.
+    #[cfg(feature = "tui")]
+    Tui(bitbabel_tui::TuiError),
 }
 
 impl fmt::Display for CliError {
@@ -66,6 +72,12 @@ impl fmt::Display for CliError {
             CliError::Key { from, error } => write!(f, "bad key in {from}: {error}"),
             CliError::File(error) => write!(f, "{error}"),
             CliError::Random(error) => write!(f, "cannot get random bytes from the OS: {error}"),
+            #[cfg(feature = "tui")]
+            CliError::NotTerminal => {
+                write!(f, "tui needs a terminal: stdin and stdout must both be one")
+            }
+            #[cfg(feature = "tui")]
+            CliError::Tui(error) => write!(f, "{error}"),
         }
     }
 }
@@ -76,5 +88,12 @@ impl Error for CliError {}
 impl From<FileError> for CliError {
     fn from(error: FileError) -> Self {
         CliError::File(error)
+    }
+}
+
+#[cfg(feature = "tui")]
+impl From<bitbabel_tui::TuiError> for CliError {
+    fn from(error: bitbabel_tui::TuiError) -> Self {
+        CliError::Tui(error)
     }
 }

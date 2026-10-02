@@ -413,3 +413,29 @@ fn keygen_file_is_private() {
     let mode = fs::metadata(&key_path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
 }
+
+#[cfg(feature = "tui")]
+#[test]
+fn tui_is_a_subcommand() {
+    let output = run(&["tui", "--help"], b"", None);
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--size"));
+    assert!(help.contains("--key-file"));
+}
+
+#[cfg(feature = "tui")]
+#[test]
+fn tui_needs_a_terminal() {
+    // The test pipes stdin and stdout, so neither is a terminal.
+    let output = run(&["tui", "--size", "small"], b"", None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("tui needs a terminal"));
+}
+
+#[cfg(not(feature = "tui"))]
+#[test]
+fn tui_is_left_out_without_the_feature() {
+    let output = run(&["tui"], b"", None);
+    assert_eq!(output.status.code(), Some(2));
+}
