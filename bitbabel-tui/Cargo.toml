@@ -1,0 +1,13 @@
+[package]
+name = "bitbabel-tui"
+version = "0.1.0"
+edition = "2024"
+description = "A terminal explorer for the bitbabel library"
+license.workspace = true
+readme = "README.md"
+
+[dependencies]
+bitbabel-core = { path = "../bitbabel-core" }
+
+[lints]
+workspace = true
