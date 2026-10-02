@@ -187,6 +187,34 @@ impl From<LibraryError> for SearchError {
     }
 }
 
+/// Errors from building a [`Location`](crate::Location) or turning one back into an index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocationError {
+    /// A wall is 1 to 4.
+    Wall(u8),
+    /// A shelf is 1 to 5.
+    Shelf(u8),
+    /// A volume is 1 to 32.
+    Volume(u8),
+    /// The location is past the last page of a library whose indexes are `len` bytes.
+    OutsideLibrary { len: usize },
+}
+
+impl fmt::Display for LocationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LocationError::Wall(wall) => write!(f, "wall must be 1 to 4, got {wall}"),
+            LocationError::Shelf(shelf) => write!(f, "shelf must be 1 to 5, got {shelf}"),
+            LocationError::Volume(volume) => write!(f, "volume must be 1 to 32, got {volume}"),
+            LocationError::OutsideLibrary { len } => {
+                write!(f, "location is past the last page of a {len}-byte library")
+            }
+        }
+    }
+}
+
+impl Error for LocationError {}
+
 #[cfg(test)]
 mod test {
     use super::*;
