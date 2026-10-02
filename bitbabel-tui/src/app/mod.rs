@@ -3,17 +3,25 @@
 
 mod effect;
 mod explore;
+mod library;
+mod setup;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
+pub use library::LibraryChoice;
+pub use setup::{Row, SIZES, SetupForm};
 
+use crate::config::TuiConfig;
 use crate::random::{RandomError, RandomFn};
+use setup::Outcome;
 
 /// Which screen is active. Only the active mode's handler sees a key, so the same key can
 /// mean different things on different screens.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Mode {
+    /// Choosing a size (and later a key).
+    Setup(SetupForm),
     /// Browsing pages.
     Explore,
 }
@@ -21,23 +29,37 @@ pub enum Mode {
 /// The whole state of the explorer.
 pub struct App {
     mode: Mode,
+    /// The library of this session. `None` while on the setup screen.
+    library: Option<LibraryChoice>,
     // Used by the random page key.
     #[allow(dead_code)]
     random: RandomFn,
 }
 
 impl App {
-    /// A new app in [`Mode::Explore`]. `random` is where every random byte comes from.
-    pub fn new(random: RandomFn) -> Self {
+    /// A new app. With a size it starts exploring that library (canonical unless there is
+    /// a key); without one it opens the setup screen. `random` is where every random byte
+    /// comes from.
+    pub fn new(config: TuiConfig, random: RandomFn) -> Self {
+        let (mode, library) = match config.size {
+            Some(size) => (Mode::Explore, Some(LibraryChoice::new(size, config.key))),
+            None => (Mode::Setup(SetupForm::new(config.key)), None),
+        };
         App {
-            mode: Mode::Explore,
+            mode,
+            library,
             random,
         }
     }
 
     /// The active screen.
-    pub fn mode(&self) -> Mode {
-        self.mode
+    pub fn mode(&self) -> &Mode {
+        &self.mode
+    }
+
+    /// The library of this session, or `None` while choosing one.
+    pub fn library(&self) -> Option<&LibraryChoice> {
+        self.library.as_ref()
     }
 
     /// Handles one key event and returns what the loop should do about it.
@@ -51,7 +73,15 @@ impl App {
         if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
             return vec![Effect::Quit];
         }
-        match self.mode {
+        match &mut self.mode {
+            Mode::Setup(form) => match form.handle_key(key) {
+                Outcome::Editing(effects) => effects,
+                Outcome::Start(library) => {
+                    self.library = Some(library);
+                    self.mode = Mode::Explore;
+                    vec![]
+                }
+            },
             Mode::Explore => explore::handle_key(key),
         }
     }
@@ -71,6 +101,7 @@ impl App {
 
 #[cfg(test)]
 mod test {
+    use bitbabel_core::{Key, LibraryConfig};
     use ratatui::crossterm::event::KeyEventState;
 
     use super::*;
@@ -85,7 +116,11 @@ mod test {
     }
 
     fn app() -> App {
-        App::new(fake_random)
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        App::new(config, fake_random)
     }
 
     fn press(code: KeyCode) -> KeyEvent {
@@ -96,7 +131,7 @@ mod test {
     fn q_quits_and_changes_nothing() {
         let mut app = app();
         assert_eq!(app.handle_key(press(KeyCode::Char('q'))), [Effect::Quit]);
-        assert_eq!(app.mode(), Mode::Explore);
+        assert!(matches!(app.mode(), Mode::Explore));
     }
 
     #[test]
@@ -131,10 +166,48 @@ mod test {
     #[test]
     fn random_bytes_come_from_the_injected_source() {
         assert_eq!(app().random_bytes(3).unwrap(), [0xAB; 3]);
-        let failing = App::new(failing_random);
+        let failing = App::new(TuiConfig::default(), failing_random);
         assert_eq!(
             failing.random_bytes(3).unwrap_err(),
             RandomError::new("blocked")
         );
+    }
+
+    #[test]
+    fn a_size_starts_exploring_that_library() {
+        let app = app();
+        assert!(matches!(app.mode(), Mode::Explore));
+        let library = app.library().unwrap();
+        assert_eq!(library.size(), LibraryConfig::SMALL);
+        assert!(library.key().is_none());
+    }
+
+    #[test]
+    fn a_size_with_a_key_starts_exploring_the_private_library() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::LARGE),
+            key: Some(Key::from_bytes([1; 32])),
+        };
+        let app = App::new(config, fake_random);
+        assert!(app.library().unwrap().key().is_some());
+    }
+
+    #[test]
+    fn no_size_opens_setup_and_enter_starts_exploring() {
+        let mut app = App::new(TuiConfig::default(), fake_random);
+        assert!(matches!(app.mode(), Mode::Setup(_)));
+        assert!(app.library().is_none());
+
+        assert!(app.handle_key(press(KeyCode::Enter)).is_empty());
+        assert!(matches!(app.mode(), Mode::Explore));
+        assert_eq!(app.library().unwrap().size(), LibraryConfig::MEDIUM);
+    }
+
+    #[test]
+    fn q_quits_from_setup_and_ctrl_c_too() {
+        let mut app = App::new(TuiConfig::default(), fake_random);
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(app.handle_key(ctrl_c), [Effect::Quit]);
+        assert_eq!(app.handle_key(press(KeyCode::Char('q'))), [Effect::Quit]);
     }
 }

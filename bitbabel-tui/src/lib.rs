@@ -25,9 +25,8 @@ pub use random::{RandomError, RandomFn, os_random};
 ///
 /// [`TuiError::Terminal`] if the terminal cannot be set up, drawn on or read from.
 pub fn run(config: TuiConfig) -> Result<(), TuiError> {
-    let _ = config;
     let mut terminal = ratatui::try_init()?;
-    let result = event_loop(&mut terminal, &mut App::new(os_random));
+    let result = event_loop(&mut terminal, &mut App::new(config, os_random));
     let restored = ratatui::try_restore();
     result?;
     restored?;
