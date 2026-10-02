@@ -59,7 +59,7 @@ pub use error::{
     CipherError, ConfigNameError, KeyError, LibraryError, PageIndexError, SearchError,
 };
 pub use index::PageIndex;
-pub use key::Key;
+pub use key::{FINGERPRINT_LEN, Key};
 pub use library::BabelLibrary;
 pub use page::Page;
 pub use search::{Fill, Placement, SearchOptions, SearchResult};
