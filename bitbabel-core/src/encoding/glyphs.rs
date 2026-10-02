@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use super::{BabelGuaranteedText, Hex};
+use super::{BabelGuaranteedText, Base64, Encoding, Hex};
 
 /// One displayed piece of a page: its text, and the bytes it came from.
 ///
@@ -43,6 +43,7 @@ impl Glyph {
 /// |---|---|---|
 /// | [`BabelGuaranteedText`] | byte | `H` `e` and the table's characters for `ff` and `0a` |
 /// | [`Hex`] | byte | `48` `65` `ff` `0a` |
+/// | [`Base64`] | 3 bytes | `SGVm` `Cg==` |
 ///
 /// # Example
 ///
@@ -74,6 +75,16 @@ impl Glyphs for Hex {
             .iter()
             .enumerate()
             .map(|(at, byte)| Glyph::new(at..at + 1, format!("{byte:02x}")))
+            .collect()
+    }
+}
+
+impl Glyphs for Base64 {
+    fn glyphs(bytes: &[u8]) -> Vec<Glyph> {
+        bytes
+            .chunks(3)
+            .enumerate()
+            .map(|(at, group)| Glyph::new(at * 3..at * 3 + group.len(), Base64::encode(group)))
             .collect()
     }
 }
@@ -122,9 +133,23 @@ mod test {
     }
 
     #[test]
+    fn base64_is_four_characters_per_three_bytes() {
+        let glyphs = Base64::glyphs(&[0x48, 0x65, 0xff, 0x0a]);
+        assert_eq!(texts(&glyphs), ["SGX/", "Cg=="]);
+        assert_eq!(ranges(&glyphs), [0..3, 3..4]);
+        // Joined, the glyphs are the whole page in base64.
+        let joined: String = glyphs.iter().map(Glyph::text).collect();
+        assert_eq!(joined, Base64::encode(&[0x48, 0x65, 0xff, 0x0a]));
+    }
+
+    #[test]
     fn no_glyph_text_is_ever_a_control_character() {
         let bytes: Vec<u8> = (0..=255).collect();
-        for glyphs in [BabelGuaranteedText::glyphs(&bytes), Hex::glyphs(&bytes)] {
+        for glyphs in [
+            BabelGuaranteedText::glyphs(&bytes),
+            Hex::glyphs(&bytes),
+            Base64::glyphs(&bytes),
+        ] {
             for glyph in glyphs {
                 assert!(!glyph.text().is_empty());
                 assert!(!glyph.text().chars().any(char::is_control));
@@ -140,6 +165,7 @@ mod test {
                 let bytes: Vec<u8> = (0..len).map(|i| ((i + shift) * 37 % 256) as u8).collect();
                 assert_tiles(&BabelGuaranteedText::glyphs(&bytes), len);
                 assert_tiles(&Hex::glyphs(&bytes), len);
+                assert_tiles(&Base64::glyphs(&bytes), len);
             }
         }
     }
@@ -148,5 +174,6 @@ mod test {
     fn empty_input_has_no_glyphs() {
         assert!(BabelGuaranteedText::glyphs(&[]).is_empty());
         assert!(Hex::glyphs(&[]).is_empty());
+        assert!(Base64::glyphs(&[]).is_empty());
     }
 }
