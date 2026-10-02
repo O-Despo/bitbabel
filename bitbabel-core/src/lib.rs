@@ -16,7 +16,8 @@
 //! - [`PageIndex::location`] gives a display address ([`Location`]): hexagon, wall, shelf and
 //!   volume, after Borges' story.
 //! - [`Encoding`] types ([`Hex`], [`Base64`], [`Utf8`], ...) render a page's bytes.
-//!   [`BabelGuaranteedText`] shows each byte as exactly one visible character.
+//!   [`BabelGuaranteedText`] shows each byte as exactly one visible character. [`Glyphs`]
+//!   splits a page into [`Glyph`]s that remember which bytes each came from, for display.
 //!
 //! # Example
 //!
@@ -55,8 +56,8 @@ pub use cipher::{BabelMachine, FeistelBytes};
 pub use config::LibraryConfig;
 pub use cursor::Cursor;
 pub use encoding::{
-    BabelGuaranteedText, BabelGuaranteedTextDecodeError, Base64, Base64DecodeError, Encoding, Hex,
-    HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
+    BabelGuaranteedText, BabelGuaranteedTextDecodeError, Base64, Base64DecodeError, Encoding,
+    Glyph, Glyphs, Hex, HexDecodeError, Raw, Utf8, Utf16Be, Utf16Le,
 };
 pub use error::{
     CipherError, ConfigNameError, KeyError, LibraryError, LocationError, PageIndexError,
