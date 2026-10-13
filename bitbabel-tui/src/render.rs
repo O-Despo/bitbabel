@@ -20,8 +20,6 @@ pub enum View {
 
 impl View {
     /// The next view in the cycle: text, hex, base64, utf8, then text again.
-    // Used by the view key.
-    #[allow(dead_code)]
     pub const fn next(self) -> Self {
         match self {
             View::Text => View::Hex,

@@ -18,6 +18,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Quit => return vec![Effect::Quit],
         Action::NextPage => session.step(true),
         Action::PrevPage => session.step(false),
+        Action::CycleView => session.cycle_view(),
         Action::StartOver => app.start_over(),
         Action::ScrollDown => session.scroll_by(1),
         Action::ScrollUp => session.scroll_by(-1),

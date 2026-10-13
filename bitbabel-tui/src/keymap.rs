@@ -11,6 +11,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Action {
     NextPage,
     PrevPage,
+    CycleView,
     Quit,
     StartOver,
     ScrollDown,
@@ -58,6 +59,7 @@ const BINDINGS: &[Binding] = &[
     bind(Pattern::Ctrl('u'), Action::HalfPageUp, None),
     bind(Pattern::Code(KeyCode::Home), Action::Top, None),
     bind(Pattern::Code(KeyCode::End), Action::Bottom, None),
+    bind(Pattern::Char('e'), Action::CycleView, Some("e view")),
     bind(Pattern::Char('s'), Action::StartOver, Some("s start over")),
     bind(Pattern::Char('q'), Action::Quit, Some("q quit")),
     bind(Pattern::Ctrl('c'), Action::Quit, None),
@@ -109,6 +111,7 @@ mod test {
     fn plain_keys_find_their_action() {
         assert_eq!(plain('h'), Some(Action::PrevPage));
         assert_eq!(plain('l'), Some(Action::NextPage));
+        assert_eq!(plain('e'), Some(Action::CycleView));
         assert_eq!(plain('j'), Some(Action::ScrollDown));
         assert_eq!(plain('k'), Some(Action::ScrollUp));
         assert_eq!(plain('q'), Some(Action::Quit));
@@ -180,7 +183,7 @@ mod test {
     #[test]
     fn the_hint_bar_comes_from_the_table_and_fits_80_columns() {
         let hints = hints();
-        assert_eq!(hints, "h/l page  j/k scroll  s start over  q quit");
+        assert_eq!(hints, "h/l page  j/k scroll  e view  s start over  q quit");
         assert!(hints.chars().count() <= 78);
     }
 }

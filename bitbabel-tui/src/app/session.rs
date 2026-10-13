@@ -125,6 +125,16 @@ impl Session {
         }
     }
 
+    /// Shows the page in the next view, with the first visible line kept in view.
+    pub fn cycle_view(&mut self) {
+        let top = self.lines.get(self.scroll).map_or(0, |line| line.offset);
+        self.view = self.view.next();
+        self.refresh_lines();
+        // The last line that starts at or before the byte that was at the top.
+        let at = self.lines.partition_point(|line| line.offset <= top);
+        self.scroll = at.saturating_sub(1).min(self.max_scroll());
+    }
+
     /// The first visible line.
     pub fn scroll(&self) -> usize {
         self.scroll
@@ -304,5 +314,40 @@ mod test {
         );
         session.step(true);
         assert!(session.status().is_none());
+    }
+
+    #[test]
+    fn cycling_the_view_goes_round_and_keeps_the_same_bytes() {
+        let mut session = session(LibraryConfig::MEDIUM);
+        let page = session.page().to_vec();
+        assert_eq!(session.lines().len(), 50);
+        session.cycle_view();
+        assert_eq!(session.view(), View::Hex);
+        assert_eq!(session.lines().len(), 100);
+        session.cycle_view();
+        assert_eq!(session.view(), View::Base64);
+        assert_eq!(session.lines().len(), 67);
+        session.cycle_view();
+        assert_eq!(session.view(), View::Utf8);
+        session.cycle_view();
+        assert_eq!(session.view(), View::Text);
+        assert_eq!(session.page(), page);
+    }
+
+    #[test]
+    fn cycling_the_view_keeps_the_top_byte_in_view() {
+        let mut session = session(LibraryConfig::MEDIUM);
+        session.scroll_by(10); // text line 10 starts at byte 0x280
+        session.cycle_view(); // hex lines hold 32 bytes, so byte 0x280 is on line 20
+        assert_eq!(session.lines()[session.scroll()].offset, 0x280);
+    }
+
+    #[test]
+    fn the_view_change_does_not_ask_the_library_for_the_page_again() {
+        // The bytes are kept, so a view change only renders them again.
+        let mut session = session(LibraryConfig::SMALL);
+        let before = session.index().clone();
+        session.cycle_view();
+        assert_eq!(session.index(), &before);
     }
 }
