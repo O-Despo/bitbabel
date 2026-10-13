@@ -67,10 +67,14 @@ impl Bookmark {
     /// - [`LineError::InvalidLabel`] if the label has a control character (tab, newline,
     ///   escape and the rest), or one that is not drawn or that reorders text.
     /// - [`LineError::LabelTooLong`] for more than [`MAX_LABEL_CHARS`] characters.
-    pub fn new(time: u64, label: impl Into<String>, index: PageIndex) -> Result<Self, LineError> {
-        let label = label.into();
-        check_label(&label)?;
-        Ok(Bookmark { time, label, index })
+    pub fn new(time: u64, label: &str, index: PageIndex) -> Result<Self, LineError> {
+        // Checked before the copy, so a huge label is refused without being allocated twice.
+        check_label(label)?;
+        Ok(Bookmark {
+            time,
+            label: label.to_string(),
+            index,
+        })
     }
 
     /// Unix seconds.
@@ -247,7 +251,7 @@ mod test {
         ] {
             let label = format!("a{bad}b");
             assert_eq!(
-                Bookmark::new(1, label, index()),
+                Bookmark::new(1, &label, index()),
                 Err(LineError::InvalidLabel(bad)),
                 "{bad:?}"
             );
@@ -267,9 +271,9 @@ mod test {
     #[test]
     fn a_label_has_at_most_200_characters() {
         let long = "é".repeat(MAX_LABEL_CHARS);
-        assert!(Bookmark::new(1, long.clone(), index()).is_ok());
+        assert!(Bookmark::new(1, &long, index()).is_ok());
         assert_eq!(
-            Bookmark::new(1, format!("{long}x"), index()),
+            Bookmark::new(1, &format!("{long}x"), index()),
             Err(LineError::LabelTooLong {
                 len: MAX_LABEL_CHARS + 1,
                 max: MAX_LABEL_CHARS

@@ -85,12 +85,7 @@ impl BookmarkFile {
     /// - [`BookmarkError::TooManyBookmarks`] if the file already has [`MAX_BOOKMARKS`].
     ///
     /// The file is unchanged on an error.
-    pub fn push(
-        &mut self,
-        time: u64,
-        label: impl Into<String>,
-        index: PageIndex,
-    ) -> Result<(), BookmarkError> {
+    pub fn push(&mut self, time: u64, label: &str, index: PageIndex) -> Result<(), BookmarkError> {
         let bookmark = Bookmark::new(time, label, index).map_err(BookmarkError::Invalid)?;
         let expected = self.settings.size().page_len();
         let actual = bookmark.index().as_bytes().len();
@@ -116,11 +111,7 @@ impl BookmarkFile {
     ///
     /// [`BookmarkError::NoSuchBookmark`] if there is none there, or
     /// [`BookmarkError::Invalid`] for a bad label. The file is unchanged on an error.
-    pub fn rename(
-        &mut self,
-        position: usize,
-        label: impl Into<String>,
-    ) -> Result<(), BookmarkError> {
+    pub fn rename(&mut self, position: usize, label: &str) -> Result<(), BookmarkError> {
         let len = self.bookmarks.len();
         let old = self
             .bookmarks
@@ -230,7 +221,7 @@ mod test {
     fn file_of(count: u64) -> BookmarkFile {
         let mut file = BookmarkFile::new(settings());
         for n in 1..=count {
-            file.push(n, format!("label {n}"), index(n)).unwrap();
+            file.push(n, &format!("label {n}"), index(n)).unwrap();
         }
         file
     }
@@ -348,7 +339,7 @@ mod test {
         let mut file = BookmarkFile::new(settings());
         let label = "日".repeat(MAX_LABEL_CHARS);
         for n in 0..MAX_BOOKMARKS as u64 {
-            file.push(u64::MAX, label.clone(), index(n)).unwrap();
+            file.push(u64::MAX, &label, index(n)).unwrap();
         }
         let len = file.to_bytes().len();
         let max = BookmarkFile::max_bytes(&settings());
