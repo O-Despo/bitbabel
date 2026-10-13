@@ -37,10 +37,29 @@ const MAX_HEADER_BYTES: usize = 96;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BookmarkFile {
     settings: BookmarkSettings,
     bookmarks: Vec<Bookmark>,
+}
+
+// Hand-written because a file can hold 10,000 bookmarks: `{:?}` shows the count, and `{:#?}`
+// the whole list.
+impl std::fmt::Debug for BookmarkFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let alternate = f.alternate();
+        let mut shown = f.debug_struct("BookmarkFile");
+        shown.field("settings", &self.settings);
+        if alternate {
+            shown.field("bookmarks", &self.bookmarks);
+        } else {
+            shown.field(
+                "bookmarks",
+                &format_args!("{} bookmarks", self.bookmarks.len()),
+            );
+        }
+        shown.finish()
+    }
 }
 
 impl BookmarkFile {
@@ -513,6 +532,21 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn debug_shows_the_count_and_the_alternate_form_the_list() {
+        let file = file_of(3);
+        let short = format!("{file:?}");
+        assert!(short.contains("3 bookmarks"), "{short}");
+        assert!(!short.contains("label 1"), "{short}");
+        assert!(short.len() < 200, "{short}");
+
+        let long = format!("{file:#?}");
+        assert!(
+            long.contains("label 1") && long.contains("label 3"),
+            "{long}"
+        );
     }
 
     #[test]
