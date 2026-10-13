@@ -29,7 +29,12 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &SetupForm) {
     lines.push(Line::raw(""));
     lines.push(start_row(form));
     lines.push(Line::raw(""));
-    lines.push(Line::raw("←/→ choose   ↑/↓ move   enter start   esc quit").centered());
+    match form.error() {
+        Some(error) => {
+            lines.push(Line::styled(format!("✗ {error}"), Style::new().red()).centered())
+        }
+        None => lines.push(Line::raw("←/→ choose   ↑/↓ move   enter start   esc quit").centered()),
+    }
 
     let block = Block::bordered().title(" bitbabel · choose a library ");
     frame.render_widget(Paragraph::new(lines).block(block), area);

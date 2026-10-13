@@ -6,7 +6,10 @@ mod app;
 mod config;
 mod error;
 mod files;
+mod history;
+mod keymap;
 mod random;
+mod render;
 mod ui;
 
 use ratatui::DefaultTerminal;
@@ -38,19 +41,24 @@ pub fn run(config: TuiConfig) -> Result<(), TuiError> {
     Ok(())
 }
 
-/// Draw, wait for an event, handle it, run its effects. Resizes fall through to a redraw.
+/// Draw, wait for an event, handle it, run its effects. A resize tells the app the new
+/// height and the next draw uses it.
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<(), TuiError> {
+    app.set_terminal_height(terminal.size()?.height);
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
-        let Event::Key(key) = event::read()? else {
-            continue;
-        };
-        for effect in app.handle_key(key) {
-            match effect {
-                Effect::Quit => return Ok(()),
-                // Arrives with the copy keys.
-                Effect::Clipboard(_) => {}
+        match event::read()? {
+            Event::Key(key) => {
+                for effect in app.handle_key(key) {
+                    match effect {
+                        Effect::Quit => return Ok(()),
+                        // Arrives with the copy keys.
+                        Effect::Clipboard(_) => {}
+                    }
+                }
             }
+            Event::Resize(_, height) => app.set_terminal_height(height),
+            _ => {}
         }
     }
 }

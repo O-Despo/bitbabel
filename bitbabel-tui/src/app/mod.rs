@@ -4,28 +4,41 @@
 mod effect;
 mod explore;
 mod library;
+mod prompt;
+mod session;
 mod setup;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
 pub use library::{LibraryChoice, fingerprint_text};
+pub use prompt::Prompt;
+pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
 use crate::config::TuiConfig;
 use crate::files::Files;
+use crate::keymap;
 use crate::random::{RandomError, RandomFn};
 use setup::Outcome;
 
 /// Which screen is active. Only the active mode's handler sees a key, so the same key can
 /// mean different things on different screens.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Mode {
     /// Choosing a size (and later a key).
     Setup(SetupForm),
-    /// Browsing pages.
-    Explore,
+    /// Browsing pages. The session is part of the mode, so there is no way to be exploring
+    /// without one.
+    Explore(Box<Session>),
 }
+
+/// Rows of the explore screen that are not page lines: the border (2), the index line, the
+/// address line, the status line and the hint line.
+pub const EXPLORE_CHROME_ROWS: u16 = 6;
+
+/// The terminal height assumed until the loop reports the real one: the smallest that is allowed.
+const DEFAULT_HEIGHT: u16 = 24;
 
 /// The character a key types into a text box, if it types one. Ctrl or Alt alone are
 /// shortcuts, not typing; Ctrl+Alt together is how AltGr reports `@`, `~` and `\` on Windows.
@@ -38,13 +51,16 @@ fn typed_char(key: &KeyEvent) -> Option<char> {
     (ctrl == alt).then_some(c)
 }
 
+/// How many page lines fit in a terminal `rows` tall.
+fn viewport_for(rows: u16) -> usize {
+    usize::from(rows.saturating_sub(EXPLORE_CHROME_ROWS))
+}
+
 /// The whole state of the explorer.
 pub struct App {
     mode: Mode,
-    /// The library of this session. `None` while on the setup screen.
-    library: Option<LibraryChoice>,
-    // Used by the random page key.
-    #[allow(dead_code)]
+    /// How many page lines fit on screen.
+    viewport: usize,
     random: RandomFn,
     files: Box<dyn Files>,
 }
@@ -54,15 +70,35 @@ impl App {
     /// a key); without one it opens the setup screen. `random` is where every random byte
     /// comes from, and `files` is how it reads files.
     pub fn new(config: TuiConfig, random: RandomFn, files: Box<dyn Files>) -> Self {
-        let (mode, library) = match config.size {
-            Some(size) => (Mode::Explore, Some(LibraryChoice::new(size, config.key))),
-            None => (Mode::Setup(SetupForm::new(config.key)), None),
+        let viewport = viewport_for(DEFAULT_HEIGHT);
+        let mut form = SetupForm::new(config.key.clone());
+        let mode = match config.size {
+            None => Mode::Setup(form),
+            Some(size) => match Session::new(LibraryChoice::new(size, config.key), viewport) {
+                Ok(session) => Mode::Explore(Box::new(session)),
+                // The presets are always valid, so this is not expected from the CLI. The
+                // message is shown on the setup screen, on the size that was asked for.
+                Err(error) => {
+                    form.select_size(size);
+                    form.set_error(error.to_string());
+                    Mode::Setup(form)
+                }
+            },
         };
         App {
             mode,
-            library,
+            viewport,
             random,
             files,
+        }
+    }
+
+    /// Tells the app how tall the terminal is, so the page knows how many lines fit. Called
+    /// at start and on every resize.
+    pub fn set_terminal_height(&mut self, rows: u16) {
+        self.viewport = viewport_for(rows);
+        if let Mode::Explore(session) = &mut self.mode {
+            session.set_viewport(self.viewport);
         }
     }
 
@@ -72,8 +108,12 @@ impl App {
     }
 
     /// The library of this session, or `None` while choosing one.
+    #[cfg(test)]
     pub fn library(&self) -> Option<&LibraryChoice> {
-        self.library.as_ref()
+        match &self.mode {
+            Mode::Explore(session) => Some(session.library()),
+            Mode::Setup(_) => None,
+        }
     }
 
     /// Handles one key event and returns what the loop should do about it.
@@ -84,19 +124,21 @@ impl App {
         if key.kind != KeyEventKind::Press {
             return vec![];
         }
-        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+        if keymap::is_interrupt(&key) {
             return vec![Effect::Quit];
         }
         match &mut self.mode {
             Mode::Setup(form) => match form.handle_key(key, self.files.as_ref()) {
                 Outcome::Editing(effects) => effects,
                 Outcome::Start(library) => {
-                    self.library = Some(library);
-                    self.mode = Mode::Explore;
+                    match Session::new(library, self.viewport) {
+                        Ok(session) => self.mode = Mode::Explore(Box::new(session)),
+                        Err(error) => form.set_error(error.to_string()),
+                    }
                     vec![]
                 }
             },
-            Mode::Explore => explore::handle_key(self, key),
+            Mode::Explore(_) => explore::handle_key(self, key),
         }
     }
 
@@ -104,7 +146,6 @@ impl App {
     /// history. A key from the command line is not carried over.
     fn start_over(&mut self) {
         self.mode = Mode::Setup(SetupForm::new(None));
-        self.library = None;
     }
 
     /// `len` random bytes from the injected source.
@@ -112,7 +153,6 @@ impl App {
     /// # Errors
     ///
     /// [`RandomError`] if the source fails.
-    #[allow(dead_code)]
     pub(crate) fn random_bytes(&self, len: usize) -> Result<Vec<u8>, RandomError> {
         let mut bytes = vec![0u8; len];
         (self.random)(&mut bytes)?;
@@ -153,7 +193,7 @@ mod test {
     fn q_quits_and_changes_nothing() {
         let mut app = app();
         assert_eq!(app.handle_key(press(KeyCode::Char('q'))), [Effect::Quit]);
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
     }
 
     #[test]
@@ -202,7 +242,7 @@ mod test {
     #[test]
     fn a_size_starts_exploring_that_library() {
         let app = app();
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
         let library = app.library().unwrap();
         assert_eq!(library.size(), LibraryConfig::SMALL);
         assert!(library.key().is_none());
@@ -229,7 +269,7 @@ mod test {
         assert!(app.library().is_none());
 
         assert!(app.handle_key(press(KeyCode::Enter)).is_empty());
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
         assert_eq!(app.library().unwrap().size(), LibraryConfig::MEDIUM);
     }
 
@@ -277,7 +317,7 @@ mod test {
         for code in keys {
             assert!(app.handle_key(press(code)).is_empty());
         }
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
         assert_eq!(
             app.library().unwrap().key(),
             Some(&Key::from_bytes([9; 32]))
@@ -306,5 +346,362 @@ mod test {
         let key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT);
         assert!(app.handle_key(key).is_empty());
         assert!(app.library().is_some());
+    }
+
+    #[test]
+    fn a_library_that_cannot_open_shows_setup_with_the_reason() {
+        // An odd page length is not a valid library.
+        let config = TuiConfig {
+            size: Some(LibraryConfig::new(15, 8)),
+            key: None,
+        };
+        let app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let Mode::Setup(form) = app.mode() else {
+            panic!("should fall back to the setup screen");
+        };
+        assert_eq!(
+            form.error(),
+            Some("page length must be even and non-zero, got 15")
+        );
+    }
+
+    #[test]
+    fn a_setup_error_is_cleared_by_the_next_key() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::new(15, 8)),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Down));
+        let Mode::Setup(form) = app.mode() else {
+            panic!("should still be on the setup screen");
+        };
+        assert_eq!(form.error(), None);
+    }
+
+    fn medium_app() -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::MEDIUM),
+            key: None,
+        };
+        App::new(config, fake_random, Box::new(MemFiles::default()))
+    }
+
+    fn scroll_of(app: &App) -> usize {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.scroll()
+    }
+
+    #[test]
+    fn j_and_k_scroll_one_line_and_stop_at_the_top() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(scroll_of(&app), 0);
+        app.handle_key(press(KeyCode::Char('j')));
+        app.handle_key(press(KeyCode::Char('j')));
+        assert_eq!(scroll_of(&app), 2);
+        app.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(scroll_of(&app), 1);
+    }
+
+    #[test]
+    fn home_end_and_ctrl_d_u_move_the_scroll() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::End));
+        assert_eq!(scroll_of(&app), 50 - 18);
+        app.handle_key(press(KeyCode::Home));
+        assert_eq!(scroll_of(&app), 0);
+        let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+        app.handle_key(ctrl('d'));
+        assert_eq!(scroll_of(&app), 9);
+        app.handle_key(ctrl('u'));
+        assert_eq!(scroll_of(&app), 0);
+    }
+
+    #[test]
+    fn a_taller_terminal_shows_more_lines_and_clamps_the_scroll() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::End));
+        app.set_terminal_height(40);
+        assert_eq!(scroll_of(&app), 50 - 34);
+    }
+
+    #[test]
+    fn the_setup_screen_hands_its_height_to_the_new_session() {
+        let mut app = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        app.set_terminal_height(40);
+        app.handle_key(press(KeyCode::Enter));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.viewport(), 34);
+    }
+
+    fn index_of(app: &App) -> bitbabel_core::PageIndex {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.index().clone()
+    }
+
+    #[test]
+    fn left_and_right_walk_back_and_forward_through_the_visits() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('l')));
+        let third = index_of(&app);
+        assert_ne!(third, start);
+
+        app.handle_key(press(KeyCode::Left));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Right));
+        app.handle_key(press(KeyCode::Right));
+        assert_eq!(index_of(&app), third);
+    }
+
+    fn status_of(app: &App) -> Option<super::session::Status> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.status().cloned()
+    }
+
+    #[test]
+    fn r_visits_the_index_made_of_the_random_bytes() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('r')));
+        // The fake source fills every byte with 0xAB.
+        assert_eq!(
+            index_of(&app),
+            bitbabel_core::PageIndex::from_bytes(vec![0xAB; 3200])
+        );
+    }
+
+    #[test]
+    fn a_random_page_is_a_visit_so_back_returns() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('r')));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+    }
+
+    #[test]
+    fn a_failing_random_source_leaves_the_page_and_says_why() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_eq!(index_of(&app), start);
+        let status = status_of(&app).unwrap();
+        assert!(status.error);
+        assert_eq!(status.text, "cannot get random bytes from the OS: blocked");
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            app.handle_key(press(KeyCode::Char(c)));
+        }
+    }
+
+    fn prompt_of(app: &App) -> Option<&Prompt> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt()
+    }
+
+    #[test]
+    fn x_opens_the_export_prompt_and_esc_closes_it() {
+        let mut app = medium_app();
+        assert!(prompt_of(&app).is_none());
+        app.handle_key(press(KeyCode::Char('x')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "export index");
+        app.handle_key(press(KeyCode::Esc));
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn typing_into_a_prompt_never_runs_a_command() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('x')));
+        // `l` would step a page and `q` would quit if the prompt did not take them.
+        type_text(&mut app, "lq.txt");
+        assert_eq!(prompt_of(&app).unwrap().input(), "lq.txt");
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(prompt_of(&app).unwrap().input(), "lq.tx");
+    }
+
+    #[test]
+    fn ctrl_c_still_quits_with_a_prompt_open() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('x')));
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(app.handle_key(ctrl_c), [Effect::Quit]);
+    }
+
+    /// An app on `files`, small size, with the export prompt open and `name` typed.
+    fn export_to(files: MemFiles, name: &str) -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(files));
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, name);
+        app
+    }
+
+    #[test]
+    fn export_writes_the_index_as_base64_and_a_newline() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        // Share the fake with the app so the test can look inside it afterwards.
+        struct Shared(std::sync::Arc<MemFiles>);
+        impl Files for Shared {
+            fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
+                self.0.read(path, max)
+            }
+            fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+                self.0.write_new(path, bytes)
+            }
+        }
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(Shared(files.clone())));
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, "idx.txt");
+        app.handle_key(press(KeyCode::Enter));
+
+        let expected = format!("{}\n", index_of(&app).to_base64());
+        assert_eq!(files.get("idx.txt").unwrap(), expected.as_bytes());
+        assert!(prompt_of(&app).is_none());
+        assert_eq!(status_of(&app).unwrap().text, "index written to idx.txt");
+    }
+
+    #[test]
+    fn export_refuses_an_existing_file_and_keeps_the_prompt_open() {
+        let files = MemFiles::default().with("taken.txt", b"keep me");
+        let mut app = export_to(files, "taken.txt");
+        app.handle_key(press(KeyCode::Enter));
+        let prompt = prompt_of(&app).unwrap();
+        assert_eq!(
+            prompt.error(),
+            Some("taken.txt already exists, choose another name")
+        );
+        // The name is still there to edit, and typing clears the error.
+        assert_eq!(prompt.input(), "taken.txt");
+        app.handle_key(press(KeyCode::Char('2')));
+        assert_eq!(prompt_of(&app).unwrap().error(), None);
+    }
+
+    #[test]
+    fn export_with_no_name_says_so() {
+        let mut app = export_to(MemFiles::default(), "  ");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(prompt_of(&app).unwrap().error(), Some("type a file name"));
+    }
+
+    /// A fake file system the test can keep a handle on after giving it to the app.
+    struct SharedFiles(std::sync::Arc<MemFiles>);
+
+    impl Files for SharedFiles {
+        fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
+            self.0.read(path, max)
+        }
+
+        fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+            self.0.write_new(path, bytes)
+        }
+    }
+
+    #[test]
+    fn g_visits_the_index_that_x_exported() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::MEDIUM),
+                key: None,
+            },
+            fake_random,
+            Box::new(SharedFiles(files)),
+        );
+        app.handle_key(press(KeyCode::Char('l')));
+        let saved = index_of(&app);
+
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, "here.txt");
+        app.handle_key(press(KeyCode::Enter));
+
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_ne!(index_of(&app), saved);
+
+        app.handle_key(press(KeyCode::Char('g')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "go to");
+        type_text(&mut app, "here.txt");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(index_of(&app), saved);
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn g_with_a_bad_file_keeps_the_prompt_open_and_the_page() {
+        let files = MemFiles::default().with("short.txt", b"abc");
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(files),
+        );
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('g')));
+        type_text(&mut app, "short.txt");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(index_of(&app), start);
+        assert_eq!(
+            prompt_of(&app).unwrap().error(),
+            Some("3 chars: not 32 (hex) or 24 (base64, with its = padding)")
+        );
+        app.handle_key(press(KeyCode::Esc));
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn a_went_to_page_is_a_visit_so_back_returns() {
+        let mut want = bitbabel_core::PageIndex::zero(16).to_string();
+        want.replace_range(31.., "7");
+        let files = MemFiles::default().with("seven.txt", want.as_bytes());
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(files),
+        );
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('g')));
+        type_text(&mut app, "seven.txt");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(index_of(&app), bitbabel_core::PageIndex::from_u64(7, 16));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
     }
 }

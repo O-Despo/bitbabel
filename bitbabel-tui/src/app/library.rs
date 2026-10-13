@@ -1,7 +1,7 @@
 //! Which library the session is in. It is shown in every mode, because the same index in
 //! another library is a different page and a wrong key gives no error.
 
-use bitbabel_core::{Encoding, Hex, Key, LibraryConfig};
+use bitbabel_core::{BabelLibrary, Encoding, Hex, Key, LibraryConfig, LibraryError};
 
 /// A size and a key: the pair that names one library.
 #[derive(Debug, Clone)]
@@ -18,16 +18,24 @@ impl LibraryChoice {
     }
 
     /// The library shape.
-    // Read by the explore screen once it builds a cursor.
-    #[allow(dead_code)]
     pub fn size(&self) -> LibraryConfig {
         self.size
     }
 
     /// The private key, or `None` for the canonical library.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn key(&self) -> Option<&Key> {
         self.key.as_ref()
+    }
+
+    /// The library itself, ready to map indexes to pages.
+    ///
+    /// # Errors
+    ///
+    /// [`LibraryError`] if the size is not a valid shape. The presets always are.
+    pub fn open(&self) -> Result<BabelLibrary, LibraryError> {
+        let key = self.key.clone().unwrap_or_else(Key::canonical_root);
+        BabelLibrary::from_config(self.size, key)
     }
 
     /// The indicator text: `medium · canonical`, or `medium · key 3f9a-1c07-e2b8-4d10`. The
@@ -50,6 +58,8 @@ pub fn fingerprint_text(key: &Key) -> String {
 
 #[cfg(test)]
 mod test {
+    use bitbabel_core::PageIndex;
+
     use super::*;
 
     #[test]
@@ -58,6 +68,33 @@ mod test {
         assert_eq!(canonical.label(), "medium · canonical");
         let custom = LibraryChoice::new(LibraryConfig::SMALL, Some(Key::from_bytes([1; 32])));
         assert_eq!(custom.label(), "small · key a576-7c85-fdef-3c24");
+    }
+
+    #[test]
+    fn open_gives_the_canonical_library_without_a_key() {
+        let opened = LibraryChoice::new(LibraryConfig::SMALL, None)
+            .open()
+            .unwrap();
+        let expected = BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
+        let index = PageIndex::zero(16);
+        assert_eq!(
+            opened.page_at(&index).unwrap(),
+            expected.page_at(&index).unwrap()
+        );
+    }
+
+    #[test]
+    fn open_with_a_key_is_a_different_library() {
+        let key = Key::from_bytes([1; 32]);
+        let private = LibraryChoice::new(LibraryConfig::SMALL, Some(key))
+            .open()
+            .unwrap();
+        let canonical = BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
+        let index = PageIndex::zero(16);
+        assert_ne!(
+            private.page_at(&index).unwrap(),
+            canonical.page_at(&index).unwrap()
+        );
     }
 
     #[test]

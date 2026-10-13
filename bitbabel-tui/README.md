@@ -3,8 +3,8 @@
 A terminal explorer for the BitBabel library, one library at a time. It is started with
 `bitbabel tui`.
 
-This is the first part of the explorer: it starts, lets you choose a library, and always shows
-which library you are in. Browsing pages, search and bookmarks come in later steps.
+It starts, lets you choose a library, always shows which library you are in, and lets you move
+through its pages. Search and bookmarks come in later steps.
 
 ## Start it
 
@@ -50,6 +50,34 @@ Below that, every screen shows `terminal too small (need 80x24, have WxH)`.
 A key file must be exactly 32 bytes (make one with `bitbabel keygen`). It is read when you press
 `Enter` in the path box, and the result is shown on the line below: `✓ loaded` with the key's
 fingerprint, or `✗` and the reason. A bad path never closes the app.
+
+## Exploring pages
+
+The explore screen shows the library, the page's index and its address (hexagon, wall, shelf
+and volume), then the page itself with the offset of each line on the left.
+
+| Key | What it does |
+|---|---|
+| `h` `l` | Previous and next page. The first and last page wrap round |
+| `j` `k` | Scroll one line |
+| `Ctrl+D` `Ctrl+U` | Scroll half a screen |
+| `Home` `End` | Top and bottom of the page |
+| `←` `→` | Back and forward through the pages you visited, like a browser (the last 100) |
+| `g` | Go to the index in a file. Hex or base64 is picked by length, and whitespace is ignored |
+| `r` | A random page. It is not repeatable, so keep a find by its index |
+| `e` | Show the page as text, hex, base64 or utf8 |
+| `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |
+| `s` | Start over |
+| `q` | Quit |
+
+A page is 16, 3200 or 6400 bytes, so a medium page is 50 lines of text. The `line 3/50` at the
+bottom says where you are.
+
+**If text lines look misaligned, press `e` for hex or base64.** The text view shows every byte as
+one character from a fixed table, and 107 of those 256 characters (`é ß α Σ ← — € ♥` and so on)
+are "ambiguous width". Some terminals, such as ones set to a CJK locale, draw those two cells
+wide, which pushes the right border and the highlight out of line. The table can't change, but
+hex and base64 are plain ASCII and always line up.
 
 ## Which library am I in?
 
