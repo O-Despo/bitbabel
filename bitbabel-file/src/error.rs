@@ -102,6 +102,8 @@ pub enum HeaderError {
     NotAPreset(LibraryConfig),
     /// The bytes do not start with `BITBABEL`.
     NotBabelFile,
+    /// The bytes are a bookmark file (they start with `BABELMARKS`), not a `.babel` file.
+    BookmarkFile,
     /// The header is from a format version this crate does not read.
     UnsupportedVersion(String),
     /// The header line has no terminating `\n`.
@@ -131,6 +133,9 @@ impl fmt::Display for HeaderError {
                 config.rounds()
             ),
             HeaderError::NotBabelFile => write!(f, "not a bitbabel file"),
+            HeaderError::BookmarkFile => {
+                write!(f, "this is a bookmark file, not a .babel file")
+            }
             HeaderError::UnsupportedVersion(version) => {
                 write!(
                     f,
@@ -220,5 +225,174 @@ impl From<PadError> for FileError {
 impl From<LibraryError> for FileError {
     fn from(err: LibraryError) -> Self {
         FileError::Library(err)
+    }
+}
+
+/// Errors from a bookmark file: its header, its list, and changes to it. A bad line is a
+/// [`LineError`] inside [`Line`](BookmarkError::Line).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BookmarkError {
+    /// The header can only name the presets, so custom shapes cannot be written to a file.
+    NotAPreset(LibraryConfig),
+    /// The bytes do not start with `BABELMARKS`.
+    NotBookmarkFile,
+    /// The header is from a format version this crate does not read.
+    UnsupportedVersion(String),
+    /// The header line has no terminating `\n`.
+    MissingNewline,
+    /// The header line is not UTF-8.
+    NotText,
+    /// A line ends in `\r\n`: the file was saved with Windows line endings.
+    WindowsLineEndings,
+    /// The header must have 3 fields, or 4 with a fingerprint. Doubled or trailing spaces
+    /// count as empty fields.
+    FieldCount { found: usize },
+    /// A field is out of order or unknown.
+    Field {
+        expected: &'static str,
+        found: String,
+    },
+    /// A field's value is not one of its lowercase names, or a fingerprint is not 16
+    /// lowercase hex digits.
+    Value { field: &'static str, value: String },
+    /// `key=custom` needs a `fingerprint` field.
+    MissingFingerprint,
+    /// A `fingerprint` field only belongs to `key=custom`.
+    UnexpectedFingerprint,
+    /// The last line has no terminating `\n`.
+    MissingFinalNewline,
+    /// A bookmark line was invalid. `line` counts file lines, so the header is line 1. The
+    /// message includes the line error's own.
+    Line { line: usize, error: LineError },
+    /// A bookmark to add was invalid. The message includes the line error's own.
+    Invalid(LineError),
+    /// An index is not one page of the file's library.
+    IndexLen { expected: usize, actual: usize },
+    /// The index is already bookmarked, on `first_line`. For an add, `line` is the line the
+    /// new bookmark would have had.
+    DuplicateIndex { first_line: usize, line: usize },
+    /// A file holds at most `max` bookmarks.
+    TooManyBookmarks { max: usize },
+    /// There is no bookmark at `position` (counting from 0) in a file of `len`.
+    NoSuchBookmark { position: usize, len: usize },
+}
+
+impl fmt::Display for BookmarkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BookmarkError::NotAPreset(config) => write!(
+                f,
+                "only small, medium and large can be written to a file, got page_len {} and rounds {}",
+                config.page_len(),
+                config.rounds()
+            ),
+            BookmarkError::NotBookmarkFile => write!(f, "not a bookmark file"),
+            BookmarkError::UnsupportedVersion(version) => write!(
+                f,
+                "unsupported bookmark file version {version:?}, expected \"BABELMARKS1\""
+            ),
+            BookmarkError::MissingNewline => write!(f, "header line has no terminating newline"),
+            BookmarkError::NotText => write!(f, "header line is not valid text"),
+            BookmarkError::WindowsLineEndings => write!(
+                f,
+                "file has Windows line endings (\\r\\n); save it with Unix line endings"
+            ),
+            BookmarkError::FieldCount { found } => write!(
+                f,
+                "header must have 3 fields, or 4 with a fingerprint, found {found}"
+            ),
+            BookmarkError::Field { expected, found } => {
+                write!(f, "expected header field {expected:?}, found {found:?}")
+            }
+            BookmarkError::Value { field, value } => {
+                write!(f, "invalid value {value:?} for header field {field:?}")
+            }
+            BookmarkError::MissingFingerprint => {
+                write!(f, "header says key=custom but has no fingerprint")
+            }
+            BookmarkError::UnexpectedFingerprint => {
+                write!(f, "header has a fingerprint but says key=canonical")
+            }
+            BookmarkError::MissingFinalNewline => {
+                write!(f, "the last line has no terminating newline")
+            }
+            BookmarkError::Line { line, error } => write!(f, "line {line}: {error}"),
+            BookmarkError::Invalid(error) => write!(f, "{error}"),
+            BookmarkError::IndexLen { expected, actual } => {
+                write!(f, "index is {actual} bytes, expected {expected}")
+            }
+            BookmarkError::DuplicateIndex { first_line, line } => {
+                write!(f, "line {line} has the same index as line {first_line}")
+            }
+            BookmarkError::TooManyBookmarks { max } => {
+                write!(f, "a bookmark file holds at most {max} bookmarks")
+            }
+            BookmarkError::NoSuchBookmark { position, len } => {
+                write!(f, "no bookmark at position {position}, the file has {len}")
+            }
+        }
+    }
+}
+
+// No `source()`, for the same reason as `IndexFormatError`.
+impl Error for BookmarkError {}
+
+/// Errors from one bookmark line, or from building a [`Bookmark`](crate::Bookmark).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LineError {
+    /// The line is not UTF-8.
+    NotText,
+    /// The line ends in `\r`: the file was saved with Windows line endings.
+    WindowsLineEndings,
+    /// A line is `time TAB label TAB index`, so it has exactly three fields.
+    FieldCount { found: usize },
+    /// The time is not the plain digits of a `u64`.
+    Time(String),
+    /// The label has a control character, or one that is not drawn or reorders text.
+    InvalidLabel(char),
+    /// The label has more than `max` characters.
+    LabelTooLong { len: usize, max: usize },
+    /// The index is not canonical base64 of one page. The message includes the decoder's own.
+    Index(PageIndexError),
+}
+
+impl fmt::Display for LineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LineError::NotText => write!(f, "line is not valid text"),
+            LineError::WindowsLineEndings => write!(
+                f,
+                "line ends in a carriage return (file saved with Windows line endings?)"
+            ),
+            LineError::FieldCount { found } => write!(
+                f,
+                "a bookmark line must have 3 tab-separated fields, found {found}"
+            ),
+            LineError::Time(time) => {
+                write!(
+                    f,
+                    "invalid time {time:?}, expected digits without leading zeros"
+                )
+            }
+            LineError::InvalidLabel(c) => write!(
+                f,
+                "label contains a control, hidden or text-reordering character U+{:04X}",
+                u32::from(*c)
+            ),
+            LineError::LabelTooLong { len, max } => {
+                write!(f, "label has {len} characters, at most {max} are allowed")
+            }
+            LineError::Index(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+// No `source()`, for the same reason as `IndexFormatError`.
+impl Error for LineError {}
+
+impl From<LineError> for BookmarkError {
+    /// A bookmark that could not be built, as opposed to a line that could not be read.
+    fn from(error: LineError) -> Self {
+        BookmarkError::Invalid(error)
     }
 }

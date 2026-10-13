@@ -2,7 +2,7 @@
 name = "bitbabel-file"
 version = "0.1.0"
 edition = "2024"
-description = "Encodes arbitrary bytes as a list of bitbabel page indices, and back"
+description = "Encodes arbitrary bytes as a list of bitbabel page indices, and back; also the bookmark file format"
 license.workspace = true
 
 [dependencies]

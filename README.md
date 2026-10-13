@@ -214,7 +214,7 @@ It's a Cargo workspace with four crates. Each one builds on the one above it.
 | Crate | What it is |
 |---|---|
 | `bitbabel-core/` | The library itself: index ↔ page, keys, the default sizes, text encodings, and search. No file IO and no randomness. |
-| `bitbabel-file/` | Turns bytes into a list of page indices and back: padding, the header, the index formats and the checksum. Still no file IO. |
+| `bitbabel-file/` | Turns bytes into a list of page indices and back: padding, the header, the index formats and the checksum. Also the bookmark file format. Still no file IO. |
 | `bitbabel-tui/` | The terminal explorer. It owns all terminal IO. |
 | `bitbabel-cli/` | The `bitbabel` command. This is where files, stdin, stdout and keys are handled. |
 
