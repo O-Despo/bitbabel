@@ -181,14 +181,15 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
 
 /// Opens result `at` of the saved set: goes to its page, marks the needle in it and scrolls to
 /// the mark. The overlay closes, and the set stays so `n` and `N` can carry on from here.
+///
+/// A failure goes to the status line, which shows whether or not the overlay is open.
 fn open_hit(session: &mut Session, at: usize) {
-    let Some(form) = session.search_form_mut() else {
+    let Some((hit, total)) = session
+        .search_form()
+        .and_then(|form| Some((form.hits.get(at)?.clone(), form.hits.len())))
+    else {
         return;
     };
-    let Some(hit) = form.hits.get(at).cloned() else {
-        return;
-    };
-    let total = form.hits.len();
     match session.visit_with_highlight(hit.index().clone(), hit.range()) {
         Ok(()) => {
             if let Some(form) = session.search_form_mut() {
@@ -198,11 +199,7 @@ fn open_hit(session: &mut Session, at: usize) {
             session.close_search();
             session.set_status(format!("search result {}/{total}", at + 1));
         }
-        Err(error) => {
-            if let Some(form) = session.search_form_mut() {
-                form.set_error(error.to_string());
-            }
-        }
+        Err(error) => session.set_error(error.to_string()),
     }
 }
 
@@ -250,4 +247,36 @@ pub(super) fn run_search(session: &mut Session, random: RandomFn) {
         return form.set_error(error.to_string());
     }
     form.search(&library, view, &needle, seed);
+}
+
+#[cfg(test)]
+mod test {
+    use bitbabel_core::LibraryConfig;
+
+    use super::*;
+    use crate::app::library::LibraryChoice;
+
+    #[test]
+    fn a_result_that_cannot_be_opened_is_an_error_on_the_status_line() {
+        let choice = LibraryChoice::new(LibraryConfig::SMALL, None);
+        let mut session = Session::new(choice, 18).unwrap();
+        session.open_search();
+        // A result with an index of the wrong length cannot come from a real search.
+        let bad = Hit {
+            index: PageIndex::zero(4),
+            start: 0,
+            end: 1,
+        };
+        if let Some(form) = session.search_form_mut() {
+            form.hits.push(bad);
+        }
+        open_hit(&mut session, 0);
+
+        let status = session.status().expect("a status should be set");
+        assert!(status.error);
+        assert_eq!(status.text, "expected 16 bytes, got 4");
+        // The page did not change, and the overlay is still open to read.
+        assert_eq!(session.index(), &PageIndex::zero(16));
+        assert!(session.search_is_open());
+    }
 }
