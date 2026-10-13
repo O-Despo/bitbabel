@@ -121,7 +121,7 @@ fn page_line(line: &DisplayLine) -> Line<'static> {
 }
 
 /// `text` as is if it is short, else its first and last `keep` characters around `…`.
-fn shorten(text: &str, keep: usize) -> String {
+pub(super) fn shorten(text: &str, keep: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= keep * 2 + 1 {
         return text.to_string();

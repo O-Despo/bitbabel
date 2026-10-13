@@ -2,6 +2,7 @@
 
 mod explore;
 mod prompt;
+mod search;
 mod setup;
 
 use ratatui::Frame;
@@ -29,6 +30,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
             if let Some(open) = session.prompt() {
                 prompt::draw(frame, area, open);
             }
+            if session.search_is_open()
+                && let Some(form) = session.search_form()
+            {
+                let size = session.library().size();
+                search::draw(frame, area, form, session.view(), size);
+            }
         }
     }
 }
@@ -48,21 +55,21 @@ mod test {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
+    use crate::app::test_util::fake_random;
     use crate::config::TuiConfig;
     use crate::files::MemFiles;
-    use crate::random::RandomError;
     use bitbabel_core::LibraryConfig;
 
-    fn fake_random(buf: &mut [u8]) -> Result<(), RandomError> {
-        buf.fill(0);
-        Ok(())
+    /// The screen's cells, with their styles.
+    fn cells(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| draw(frame, app)).unwrap();
+        terminal.backend().buffer().clone()
     }
 
     /// The screen as text, one line per row.
     fn render(app: &App, width: u16, height: u16) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal.draw(|frame| draw(frame, app)).unwrap();
-        let buffer = terminal.backend().buffer();
+        let buffer = cells(app, width, height);
         (0..height)
             .map(|y| {
                 (0..width)
@@ -319,5 +326,114 @@ mod test {
 
         press(&mut app, KeyCode::Enter);
         assert!(render(&app, 80, 24).contains("✗ taken.txt already exists, choose another name"));
+    }
+
+    #[test]
+    fn the_search_overlay_shows_the_view_the_byte_count_and_the_results() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let press = |app: &mut App, code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut app, KeyCode::Char('/'));
+        for c in "hello".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        let before = render(&app, 80, 24);
+        assert!(before.contains("search · text"));
+        assert!(before.contains("needle: hello"));
+        assert!(before.contains("(5 bytes)"));
+
+        press(&mut app, KeyCode::Enter);
+        let after = render(&app, 80, 24);
+        assert!(after.contains(" 1  at 0x"));
+        assert!(after.contains("10  at 0x"));
+        assert!(after.contains("enter search"));
+    }
+
+    #[test]
+    fn the_search_overlay_shows_a_needle_error_inline() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let press = |app: &mut App, code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut app, KeyCode::Char('e')); // hex view
+        press(&mut app, KeyCode::Char('/'));
+        press(&mut app, KeyCode::Char('g'));
+        press(&mut app, KeyCode::Enter);
+        let screen = render(&app, 80, 24);
+        assert!(screen.contains("search · hex"));
+        assert!(screen.contains("✗ invalid hex digit 'g'"));
+    }
+
+    /// A small-library app with the search overlay open and `needle` typed.
+    fn searching(needle: &str) -> App {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let press = |app: &mut App, code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut app, KeyCode::Char('/'));
+        for c in needle.chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        app
+    }
+
+    /// The text of the first screen row that contains `marker`, and its row number.
+    fn row_with(app: &App, marker: &str) -> u16 {
+        let screen = render(app, 80, 24);
+        let row = screen.lines().position(|row| row.contains(marker));
+        u16::try_from(row.expect("marker should be on screen")).unwrap()
+    }
+
+    #[test]
+    fn results_for_an_edited_needle_are_drawn_dim() {
+        use ratatui::style::Modifier;
+
+        let mut app = searching("hello");
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let row = row_with(&app, " 2  at 0x");
+        let first_cell = |app: &App| cells(app, 80, 24)[(20, row)].modifier;
+        assert!(!first_cell(&app).contains(Modifier::DIM));
+
+        // Editing the needle makes the same rows stale, which is shown by dimming them.
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(first_cell(&app).contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn an_opened_result_is_drawn_with_the_needle_highlighted() {
+        use ratatui::style::Color;
+
+        let mut app = searching("hello");
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)); // search
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)); // open the first
+        let buffer = cells(&app, 80, 24);
+        let marked: String = (0..24)
+            .flat_map(|y| (0..80).map(move |x| (x, y)))
+            .filter(|&(x, y)| buffer[(x, y)].bg == Color::Yellow)
+            .map(|(x, y)| buffer[(x, y)].symbol().to_string())
+            .collect();
+        assert_eq!(marked, "hello");
     }
 }

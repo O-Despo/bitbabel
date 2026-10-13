@@ -1,9 +1,13 @@
 //! Everything about the library being explored: the page and how it is shown.
 
+use std::ops::Range;
+
 use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
 use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
+use super::search::SearchForm;
+use super::viewport::Viewport;
 use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
@@ -19,15 +23,28 @@ pub struct Session {
     /// The page as display lines. Made again whenever the page or the view changes, and
     /// only then.
     lines: Vec<DisplayLine>,
-    /// The first visible line.
-    scroll: usize,
-    /// How many page lines fit on screen.
-    viewport: usize,
+    /// Which lines of the page are on screen.
+    viewport: Viewport,
     /// The pages visited, with the current one marked.
     history: History,
     status: Option<Status>,
-    /// A one-line prompt that is open over the page, if any.
-    prompt: Option<Prompt>,
+    /// What is open over the page, if anything.
+    overlay: Overlay,
+    /// The search form. It keeps its needle and results when the overlay is closed.
+    search: Option<SearchForm>,
+    /// The bytes of the page to mark, set when a search result is opened.
+    highlight: Option<Range<usize>>,
+}
+
+/// What is open over the page. At most one thing is, so two overlays cannot both take keys.
+#[derive(Debug)]
+enum Overlay {
+    /// Only the page.
+    None,
+    /// A one-line prompt (go to, export).
+    Prompt(Prompt),
+    /// The search box. Its form is kept on the session, so it outlives the overlay.
+    Search,
 }
 
 /// A message for the status line.
@@ -56,11 +73,12 @@ impl Session {
             page,
             view: View::Text,
             lines: Vec::new(),
-            scroll: 0,
-            viewport,
+            viewport: Viewport::new(viewport),
             history: History::new(first),
             status: None,
-            prompt: None,
+            overlay: Overlay::None,
+            search: None,
+            highlight: None,
         };
         session.refresh_lines();
         Ok(session)
@@ -97,28 +115,64 @@ impl Session {
         self.status.as_ref()
     }
 
-    /// The open prompt, if any.
+    /// The open prompt, if one is open.
     pub fn prompt(&self) -> Option<&Prompt> {
-        self.prompt.as_ref()
+        match &self.overlay {
+            Overlay::Prompt(prompt) => Some(prompt),
+            _ => None,
+        }
     }
 
     pub(super) fn prompt_mut(&mut self) -> Option<&mut Prompt> {
-        self.prompt.as_mut()
+        match &mut self.overlay {
+            Overlay::Prompt(prompt) => Some(prompt),
+            _ => None,
+        }
     }
 
-    /// Opens a prompt. It gets every key until it is closed.
+    /// Opens a prompt. It gets every key until it is closed, and it replaces any other overlay.
     pub fn open_prompt(&mut self, kind: PromptKind) {
-        self.prompt = Some(Prompt::new(kind));
+        self.overlay = Overlay::Prompt(Prompt::new(kind));
     }
 
-    /// Closes the open prompt, if any.
+    /// Closes the open prompt, if one is open.
     pub fn close_prompt(&mut self) {
-        self.prompt = None;
+        if matches!(self.overlay, Overlay::Prompt(_)) {
+            self.overlay = Overlay::None;
+        }
+    }
+
+    /// The search form, if it has been opened. It is kept after the overlay is closed.
+    pub fn search_form(&self) -> Option<&SearchForm> {
+        self.search.as_ref()
+    }
+
+    pub(super) fn search_form_mut(&mut self) -> Option<&mut SearchForm> {
+        self.search.as_mut()
+    }
+
+    /// Whether the search overlay is showing. It gets every key while it is.
+    pub fn search_is_open(&self) -> bool {
+        matches!(self.overlay, Overlay::Search)
+    }
+
+    /// Opens the search overlay, with the last needle and results if there were any. It
+    /// replaces any other overlay.
+    pub fn open_search(&mut self) {
+        self.search.get_or_insert_with(SearchForm::default);
+        self.overlay = Overlay::Search;
+    }
+
+    /// Closes the search overlay. The needle and results are kept.
+    pub fn close_search(&mut self) {
+        if matches!(self.overlay, Overlay::Search) {
+            self.overlay = Overlay::None;
+        }
     }
 
     /// Shows `message` inside the open prompt, which stays open.
     pub(super) fn set_prompt_error(&mut self, message: impl Into<String>) {
-        if let Some(prompt) = self.prompt.as_mut() {
+        if let Some(prompt) = self.prompt_mut() {
             prompt.set_error(message);
         }
     }
@@ -147,8 +201,10 @@ impl Session {
     fn show(&mut self, index: PageIndex) -> Result<(), LibraryError> {
         let page = self.cursor.jump(index)?;
         self.page = page.bytes().to_vec();
+        // Any change of page clears the mark; opening a search result sets it again after.
+        self.highlight = None;
         self.status = None;
-        self.scroll = 0;
+        self.viewport.go_top();
         self.refresh_lines();
         Ok(())
     }
@@ -162,6 +218,39 @@ impl Session {
         self.show(index.clone())?;
         self.history.visit(index);
         Ok(())
+    }
+
+    /// Goes to the page at `index`, records the visit, marks `needle` in it and scrolls so the
+    /// mark is in view. Changing the view or scrolling keeps the mark; any other change of page
+    /// clears it.
+    ///
+    /// # Errors
+    ///
+    /// [`LibraryError::LenMismatch`] if `index` is not this library's length. Nothing changes.
+    pub fn visit_with_highlight(
+        &mut self,
+        index: PageIndex,
+        needle: Range<usize>,
+    ) -> Result<(), LibraryError> {
+        self.visit(index)?;
+        let start = needle.start;
+        self.highlight = Some(needle);
+        self.refresh_lines();
+        self.scroll_to_byte(start);
+        Ok(())
+    }
+
+    /// Scrolls so the line holding `byte` is the first one shown, or as near as the page allows.
+    fn scroll_to_byte(&mut self, byte: usize) {
+        let line = self.lines.partition_point(|line| line.offset <= byte);
+        self.viewport
+            .go_line(line.saturating_sub(1), self.lines.len());
+    }
+
+    /// The bytes marked on the page, if any.
+    #[cfg(test)]
+    pub fn highlight(&self) -> Option<&Range<usize>> {
+        self.highlight.as_ref()
     }
 
     /// Goes back one page in the history, or says there is none.
@@ -203,63 +292,54 @@ impl Session {
 
     /// Shows the page in the next view, with the first visible line kept in view.
     pub fn cycle_view(&mut self) {
-        let top = self.lines.get(self.scroll).map_or(0, |line| line.offset);
+        let top = self
+            .lines
+            .get(self.viewport.top())
+            .map_or(0, |line| line.offset);
         self.view = self.view.next();
         self.refresh_lines();
-        // The last line that starts at or before the byte that was at the top.
-        let at = self.lines.partition_point(|line| line.offset <= top);
-        self.scroll = at.saturating_sub(1).min(self.max_scroll());
+        self.scroll_to_byte(top);
     }
 
     /// The first visible line.
     pub fn scroll(&self) -> usize {
-        self.scroll
+        self.viewport.top()
     }
 
     /// How many page lines fit on screen.
     #[cfg(test)]
     pub fn viewport(&self) -> usize {
-        self.viewport
-    }
-
-    /// The largest scroll position: the last line sits on the last row of the screen.
-    fn max_scroll(&self) -> usize {
-        self.lines.len().saturating_sub(self.viewport)
+        self.viewport.rows()
     }
 
     /// Tells the session how many page lines fit on screen, and keeps the scroll inside.
     pub fn set_viewport(&mut self, rows: usize) {
-        self.viewport = rows;
-        self.scroll = self.scroll.min(self.max_scroll());
+        self.viewport.set_rows(rows, self.lines.len());
     }
 
     /// Scrolls by `lines` (negative is up), stopping at the first and last line.
     pub fn scroll_by(&mut self, lines: isize) {
-        self.scroll = self
-            .scroll
-            .saturating_add_signed(lines)
-            .min(self.max_scroll());
+        self.viewport.scroll_by(lines, self.lines.len());
     }
 
     /// Scrolls half a screen down or up.
     pub fn scroll_half_page(&mut self, down: bool) {
-        let half = (self.viewport / 2).max(1) as isize;
-        self.scroll_by(if down { half } else { -half });
+        self.viewport.scroll_half_page(down, self.lines.len());
     }
 
     /// Scrolls to the first line.
     pub fn scroll_to_top(&mut self) {
-        self.scroll = 0;
+        self.viewport.go_top();
     }
 
     /// Scrolls so the last line is on the last row of the screen.
     pub fn scroll_to_bottom(&mut self) {
-        self.scroll = self.max_scroll();
+        self.viewport.go_bottom(self.lines.len());
     }
 
     /// Makes the display lines again. Called after every change of the page or the view.
     fn refresh_lines(&mut self) {
-        self.lines = render(self.view, &self.page, None);
+        self.lines = render(self.view, &self.page, self.highlight.as_ref());
     }
 }
 
@@ -304,36 +384,6 @@ mod test {
         assert_eq!(session.page().len(), 3200);
         assert_eq!(session.lines().len(), 50);
         assert_eq!(session.lines().last().unwrap().offset, 49 * 64);
-    }
-
-    #[test]
-    fn scrolling_stops_at_both_ends() {
-        let mut session = session(LibraryConfig::MEDIUM);
-        session.scroll_by(-5);
-        assert_eq!(session.scroll(), 0);
-        session.scroll_by(1000);
-        assert_eq!(session.scroll(), 50 - 18);
-        session.scroll_to_top();
-        assert_eq!(session.scroll(), 0);
-        session.scroll_to_bottom();
-        assert_eq!(session.scroll(), 32);
-    }
-
-    #[test]
-    fn half_page_scrolls_half_the_viewport() {
-        let mut session = session(LibraryConfig::MEDIUM);
-        session.scroll_half_page(true);
-        assert_eq!(session.scroll(), 9);
-        session.scroll_half_page(false);
-        assert_eq!(session.scroll(), 0);
-    }
-
-    #[test]
-    fn a_page_that_fits_does_not_scroll() {
-        let mut session = session(LibraryConfig::SMALL);
-        session.scroll_by(5);
-        session.scroll_to_bottom();
-        assert_eq!(session.scroll(), 0);
     }
 
     #[test]
