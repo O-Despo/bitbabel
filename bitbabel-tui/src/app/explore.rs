@@ -42,6 +42,8 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Export => session.open_prompt(PromptKind::Export),
         Action::CycleView => session.cycle_view(),
         Action::Search => session.open_search(),
+        Action::NextResult => search::step_result(session, true),
+        Action::PrevResult => search::step_result(session, false),
         Action::Random => {}
         Action::StartOver => app.start_over(),
         Action::ScrollDown => session.scroll_by(1),

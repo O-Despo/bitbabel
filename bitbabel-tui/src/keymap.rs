@@ -16,6 +16,8 @@ pub enum Action {
     Random,
     GoTo,
     Search,
+    NextResult,
+    PrevResult,
     Export,
     CycleView,
     Quit,
@@ -74,6 +76,8 @@ const BINDINGS: &[Binding] = &[
     bind(Pattern::Char('r'), Action::Random, Some("r random")),
     bind(Pattern::Char('g'), Action::GoTo, Some("g go to")),
     bind(Pattern::Char('/'), Action::Search, Some("/ search")),
+    bind(Pattern::Char('n'), Action::NextResult, None),
+    bind(Pattern::Char('N'), Action::PrevResult, None),
     bind(Pattern::Char('x'), Action::Export, None),
     bind(Pattern::Char('e'), Action::CycleView, Some("e view")),
     bind(Pattern::Char('s'), Action::StartOver, None),
@@ -132,6 +136,8 @@ mod test {
         assert_eq!(plain('x'), Some(Action::Export));
         assert_eq!(plain('g'), Some(Action::GoTo));
         assert_eq!(plain('/'), Some(Action::Search));
+        assert_eq!(plain('n'), Some(Action::NextResult));
+        assert_eq!(plain('N'), Some(Action::PrevResult));
         assert_eq!(
             action_for(&key(KeyCode::Left, KeyModifiers::NONE)),
             Some(Action::HistoryBack)

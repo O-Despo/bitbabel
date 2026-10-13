@@ -52,6 +52,8 @@ pub struct SearchForm {
     selected: usize,
     /// The needle text the current results belong to. Editing the needle makes them stale.
     searched: Option<String>,
+    /// The result opened last. `n` and `N` step from here, whatever page you are on now.
+    last_opened: Option<usize>,
 }
 
 impl SearchForm {
@@ -118,6 +120,7 @@ impl SearchForm {
                     })
                     .collect();
                 self.selected = 0;
+                self.last_opened = None;
                 self.searched = Some(self.input.clone());
                 self.error = None;
             }
@@ -144,9 +147,9 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
             let picked = session
                 .search_form()
                 .filter(|form| form.is_fresh())
-                .and_then(|form| form.hits().get(form.selected()).cloned());
+                .map(SearchForm::selected);
             match picked {
-                Some(hit) => open_hit(session, &hit),
+                Some(at) => open_hit(session, at),
                 None => run_search(session, random),
             }
         }
@@ -171,16 +174,51 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     vec![]
 }
 
-/// Goes to the page of `hit`, marks the needle in it and closes the overlay. The overlay's
-/// results are kept, so the page stays one of a set.
-fn open_hit(session: &mut Session, hit: &Hit) {
+/// Opens result `at` of the saved set: goes to its page, marks the needle in it and scrolls to
+/// the mark. The overlay closes, and the set stays so `n` and `N` can carry on from here.
+fn open_hit(session: &mut Session, at: usize) {
+    let Some(form) = session.search_form_mut() else {
+        return;
+    };
+    let Some(hit) = form.hits.get(at).cloned() else {
+        return;
+    };
+    let total = form.hits.len();
     match session.visit_with_highlight(hit.index().clone(), hit.range()) {
-        Ok(()) => session.close_search(),
+        Ok(()) => {
+            if let Some(form) = session.search_form_mut() {
+                form.selected = at;
+                form.last_opened = Some(at);
+            }
+            session.close_search();
+            session.set_status(format!("search result {}/{total}", at + 1));
+        }
         Err(error) => {
             if let Some(form) = session.search_form_mut() {
                 form.set_error(error.to_string());
             }
         }
+    }
+}
+
+/// `n` and `N`: open the next or previous result of the saved set, counting from the one opened
+/// last and wrapping at the ends. It is a visit like any other. With no results it says so.
+pub(super) fn step_result(session: &mut Session, forward: bool) {
+    let next = session.search_form().and_then(|form| {
+        let total = form.hits.len();
+        if total == 0 {
+            return None;
+        }
+        Some(match (form.last_opened, forward) {
+            (Some(at), true) => (at + 1) % total,
+            (Some(at), false) => (at + total - 1) % total,
+            (None, true) => 0,
+            (None, false) => total - 1,
+        })
+    });
+    match next {
+        Some(at) => open_hit(session, at),
+        None => session.set_status("no search results, press / to search"),
     }
 }
 

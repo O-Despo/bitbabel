@@ -99,7 +99,9 @@ does not have, or an odd number of hex digits, are shown in the box and never cl
 search uses a new random seed. In the box, `↑` `↓` pick a result and `Enter` opens it: the page
 is shown with the needle marked and scrolled into view. The marked page is a normal visit, so
 `←` goes back. The mark stays while you scroll or change the view, and goes when you move to
-another page. Press `Esc` to close the box; the needle and results are kept for the next `/`.
+another page. Outside the box, `n` and `N` open the next and previous result of the last
+search, counting from the one you opened last and wrapping at the ends, even after you have
+moved on. Press `Esc` to close the box; the needle and results are kept for the next `/`.
 
 ## Which library am I in?
 

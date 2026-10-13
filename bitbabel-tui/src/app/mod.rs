@@ -991,4 +991,94 @@ mod test {
         assert!(form_of(&app).is_fresh());
         assert_eq!(form_of(&app).hits().len(), 10);
     }
+
+    /// Searches for `needle` on a small library, closes the overlay and returns the app.
+    fn with_results(needle: &str) -> App {
+        let mut app = searching(needle);
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        app
+    }
+
+    fn hit_index(app: &App, at: usize) -> bitbabel_core::PageIndex {
+        form_of(app).hits()[at].index().clone()
+    }
+
+    #[test]
+    fn n_opens_the_first_result_then_the_next_ones() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 0));
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 1));
+        assert_eq!(status_of(&app).unwrap().text, "search result 2/10");
+    }
+
+    #[test]
+    fn capital_n_steps_back_and_both_wrap() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('N'))); // from nothing: the last
+        assert_eq!(index_of(&app), hit_index(&app, 9));
+        app.handle_key(press(KeyCode::Char('n'))); // wraps to the first
+        assert_eq!(index_of(&app), hit_index(&app, 0));
+        app.handle_key(press(KeyCode::Char('N'))); // wraps back to the last
+        assert_eq!(index_of(&app), hit_index(&app, 9));
+    }
+
+    #[test]
+    fn n_counts_from_the_last_result_opened_even_after_wandering() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('r'))); // wander off to a random page
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 2));
+    }
+
+    #[test]
+    fn a_result_opened_with_n_is_marked_and_is_a_visit() {
+        let mut app = with_results("hi");
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(highlight_of(&app), Some(form_of(&app).hits()[0].range()));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+    }
+
+    #[test]
+    fn opening_from_the_overlay_starts_n_from_that_row() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Enter)); // opens row 3
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 3));
+    }
+
+    #[test]
+    fn a_new_search_replaces_the_set_and_starts_n_over() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "x");
+        app.handle_key(press(KeyCode::Enter)); // searches "hix"
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 0));
+    }
+
+    #[test]
+    fn n_with_no_results_says_to_search() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), start);
+        assert_eq!(
+            status_of(&app).unwrap().text,
+            "no search results, press / to search"
+        );
+    }
 }
