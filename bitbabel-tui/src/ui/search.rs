@@ -47,7 +47,7 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &SearchForm, view: View, size: 
         let text = format!("{:>2}  at 0x{:02x}   index {shown}", at + 1, hit.start());
         let style = if at == form.selected() {
             Style::new().add_modifier(Modifier::REVERSED)
-        } else if form.is_fresh() {
+        } else if form.is_fresh(view) {
             Style::new()
         } else {
             // The needle was edited, so these are for the old one.

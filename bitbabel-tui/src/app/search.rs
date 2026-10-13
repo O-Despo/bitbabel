@@ -50,8 +50,10 @@ pub struct SearchForm {
     error: Option<String>,
     hits: Vec<Hit>,
     selected: usize,
-    /// The needle text the current results belong to. Editing the needle makes them stale.
-    searched: Option<String>,
+    /// The needle text and the view it was read in, which the current results belong to.
+    /// Editing the needle, or changing the view, makes them stale: the same text means
+    /// different bytes in another view.
+    searched: Option<(String, View)>,
     /// The result opened last. `n` and `N` step from here, whatever page you are on now.
     last_opened: Option<usize>,
 }
@@ -77,9 +79,13 @@ impl SearchForm {
         self.selected
     }
 
-    /// Whether the results are for what is typed now.
-    pub fn is_fresh(&self) -> bool {
-        !self.hits.is_empty() && self.searched.as_deref() == Some(self.input.as_str())
+    /// Whether the results are for what is typed now, read in `view`.
+    pub fn is_fresh(&self, view: View) -> bool {
+        let same = self
+            .searched
+            .as_ref()
+            .is_some_and(|(text, searched_in)| *text == self.input && *searched_in == view);
+        !self.hits.is_empty() && same
     }
 
     /// How many bytes the needle is in `view`, or `None` if it is empty or not valid there.
@@ -121,7 +127,7 @@ impl SearchForm {
                     .collect();
                 self.selected = 0;
                 self.last_opened = None;
-                self.searched = Some(self.input.clone());
+                self.searched = Some((self.input.clone(), view));
                 self.error = None;
             }
             Err(error) => self.error = Some(error.to_string()),
@@ -149,9 +155,10 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         KeyCode::Enter => {
             // Results for this needle are already there: Enter opens the picked one. Otherwise
             // Enter searches.
+            let view = session.view();
             let picked = session
                 .search_form()
-                .filter(|form| form.is_fresh())
+                .filter(|form| form.is_fresh(view))
                 .map(SearchForm::selected);
             match picked {
                 Some(at) => open_hit(session, at),

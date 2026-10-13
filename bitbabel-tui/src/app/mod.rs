@@ -168,6 +168,8 @@ mod test {
     use bitbabel_core::{Key, LibraryConfig};
     use ratatui::crossterm::event::KeyEventState;
 
+    use crate::render::View;
+
     use super::*;
     use crate::files::MemFiles;
 
@@ -766,7 +768,7 @@ mod test {
         let form = form_of(&app);
         assert_eq!(form.error(), None);
         assert_eq!(form.hits().len(), 10);
-        assert!(form.is_fresh());
+        assert!(form.is_fresh(View::Text));
 
         let library = bitbabel_core::BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
         for hit in form.hits() {
@@ -846,7 +848,7 @@ mod test {
         assert_eq!(form_of(&app).selected(), 1);
 
         type_text(&mut app, "x");
-        assert!(!form_of(&app).is_fresh());
+        assert!(!form_of(&app).is_fresh(View::Text));
         // The old results are still there to look at.
         assert_eq!(form_of(&app).hits().len(), 10);
     }
@@ -988,7 +990,7 @@ mod test {
         type_text(&mut app, "s"); // "his" is a new needle
         app.handle_key(press(KeyCode::Enter));
         assert!(search_open(&app));
-        assert!(form_of(&app).is_fresh());
+        assert!(form_of(&app).is_fresh(View::Text));
         assert_eq!(form_of(&app).hits().len(), 10);
     }
 
@@ -1132,5 +1134,25 @@ mod test {
         let mut app = searching("");
         app.handle_key(press(KeyCode::Char('r')));
         assert_eq!(form_of(&app).input(), "r");
+    }
+
+    #[test]
+    fn results_are_stale_after_the_view_changes_even_with_the_same_text() {
+        let mut app = searching("6869");
+        app.handle_key(press(KeyCode::Enter));
+        assert!(form_of(&app).is_fresh(View::Text));
+        let before = form_of(&app).hits().to_vec();
+
+        // The same text in the hex view is two bytes, `hi`, not four characters.
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('e')));
+        app.handle_key(press(KeyCode::Char('/')));
+        assert!(!form_of(&app).is_fresh(View::Hex));
+
+        // So Enter searches again instead of opening a result of the old needle.
+        app.handle_key(press(KeyCode::Enter));
+        assert!(search_open(&app));
+        assert!(form_of(&app).is_fresh(View::Hex));
+        assert_ne!(form_of(&app).hits(), before.as_slice());
     }
 }
