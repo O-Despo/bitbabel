@@ -21,6 +21,7 @@ mod check;
 mod error;
 mod file;
 mod format;
+mod grammar;
 mod header;
 mod pad;
 

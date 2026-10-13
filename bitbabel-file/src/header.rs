@@ -14,6 +14,7 @@ use bitbabel_core::{Encoding, Hex, LibraryConfig};
 use crate::check::CHECK_LEN;
 use crate::error::HeaderError;
 use crate::format::IndexFormat;
+use crate::grammar::{field_values, lowercase_hex};
 
 /// The first word of every header. The digit is the format version.
 const MAGIC: &str = "BITBABEL1";
@@ -204,18 +205,10 @@ impl Header {
         if words.len() != FIELDS.len() && words.len() != FIELDS.len() - 1 {
             return Err(HeaderError::FieldCount { found: words.len() });
         }
-        let values = words
-            .iter()
-            .zip(FIELDS)
-            .map(|(word, expected)| {
-                word.strip_prefix(expected)
-                    .and_then(|rest| rest.strip_prefix('='))
-                    .ok_or_else(|| HeaderError::Field {
-                        expected,
-                        found: word.to_string(),
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let values = field_values(&words, &FIELDS).map_err(|wrong| HeaderError::Field {
+            expected: wrong.expected,
+            found: wrong.found,
+        })?;
 
         let invalid = |field: &'static str, value: &str| HeaderError::Value {
             field,
@@ -224,7 +217,7 @@ impl Header {
         let (size, key_mode, format) = (values[0], values[1], values[2]);
         let check = values
             .get(3)
-            .map(|&check| parse_check(check).ok_or_else(|| invalid("check", check)))
+            .map(|&check| lowercase_hex(check).ok_or_else(|| invalid("check", check)))
             .transpose()?;
         let settings = Settings {
             // Only exact lowercase preset names parse, so this is always a preset.
@@ -235,14 +228,6 @@ impl Header {
         };
         Ok((Header { settings, check }, payload))
     }
-}
-
-/// A check value, only if it is written exactly as [`Header::write`] writes it.
-fn parse_check(text: &str) -> Option<[u8; CHECK_LEN]> {
-    let bytes = Hex::decode(&text.to_string()).ok()?;
-    let check = <[u8; CHECK_LEN]>::try_from(bytes).ok()?;
-    // Hex decoding also accepts uppercase; only the lowercase spelling is valid.
-    (Hex::encode(&check) == text).then_some(check)
 }
 
 #[cfg(test)]

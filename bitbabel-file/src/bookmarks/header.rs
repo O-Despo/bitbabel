@@ -8,6 +8,7 @@
 use bitbabel_core::{Encoding, FINGERPRINT_LEN, Hex, LibraryConfig};
 
 use crate::error::BookmarkError;
+use crate::grammar::{field_values, lowercase_hex};
 
 /// The first word of every header. The digit is the format version.
 const MAGIC: &str = "BABELMARKS1";
@@ -155,18 +156,10 @@ impl BookmarkSettings {
             4 => &["size", "key", "fingerprint", "format"],
             found => return Err(BookmarkError::FieldCount { found }),
         };
-        let values = words
-            .iter()
-            .zip(names)
-            .map(|(word, &expected)| {
-                word.strip_prefix(expected)
-                    .and_then(|value| value.strip_prefix('='))
-                    .ok_or_else(|| BookmarkError::Field {
-                        expected,
-                        found: word.to_string(),
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let values = field_values(&words, names).map_err(|wrong| BookmarkError::Field {
+            expected: wrong.expected,
+            found: wrong.found,
+        })?;
 
         let invalid = |field: &'static str, value: &str| BookmarkError::Value {
             field,
@@ -182,21 +175,13 @@ impl BookmarkSettings {
             ("canonical", Some(_)) => return Err(BookmarkError::UnexpectedFingerprint),
             ("custom", None) => return Err(BookmarkError::MissingFingerprint),
             ("custom", Some(text)) => BookmarkKey::Custom(
-                parse_fingerprint(text).ok_or_else(|| invalid("fingerprint", text))?,
+                lowercase_hex(text).ok_or_else(|| invalid("fingerprint", text))?,
             ),
             (other, _) => return Err(invalid("key", other)),
         };
         // `size` parsed as a preset name, so this cannot fail.
         Ok((BookmarkSettings::new(size, key)?, rest))
     }
-}
-
-/// A fingerprint, only if it is written exactly as [`BookmarkSettings::header`] writes it.
-fn parse_fingerprint(text: &str) -> Option<[u8; FINGERPRINT_LEN]> {
-    let bytes = Hex::decode(&text.to_string()).ok()?;
-    let fingerprint = <[u8; FINGERPRINT_LEN]>::try_from(bytes).ok()?;
-    // Hex decoding also accepts uppercase; only the lowercase spelling is valid.
-    (Hex::encode(&fingerprint) == text).then_some(fingerprint)
 }
 
 #[cfg(test)]
