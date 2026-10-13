@@ -1,5 +1,7 @@
 //! Everything about the library being explored: the page and how it is shown.
 
+use std::ops::Range;
+
 use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
 use super::library::LibraryChoice;
@@ -33,6 +35,8 @@ pub struct Session {
     search: Option<SearchForm>,
     /// Whether the search overlay is showing.
     search_open: bool,
+    /// The bytes of the page to mark, set when a search result is opened.
+    highlight: Option<Range<usize>>,
 }
 
 /// A message for the status line.
@@ -68,6 +72,7 @@ impl Session {
             prompt: None,
             search: None,
             search_open: false,
+            highlight: None,
         };
         session.refresh_lines();
         Ok(session)
@@ -179,6 +184,8 @@ impl Session {
     fn show(&mut self, index: PageIndex) -> Result<(), LibraryError> {
         let page = self.cursor.jump(index)?;
         self.page = page.bytes().to_vec();
+        // Any change of page clears the mark; opening a search result sets it again after.
+        self.highlight = None;
         self.status = None;
         self.scroll = 0;
         self.refresh_lines();
@@ -194,6 +201,38 @@ impl Session {
         self.show(index.clone())?;
         self.history.visit(index);
         Ok(())
+    }
+
+    /// Goes to the page at `index`, records the visit, marks `needle` in it and scrolls so the
+    /// mark is in view. Changing the view or scrolling keeps the mark; any other change of page
+    /// clears it.
+    ///
+    /// # Errors
+    ///
+    /// [`LibraryError::LenMismatch`] if `index` is not this library's length. Nothing changes.
+    pub fn visit_with_highlight(
+        &mut self,
+        index: PageIndex,
+        needle: Range<usize>,
+    ) -> Result<(), LibraryError> {
+        self.visit(index)?;
+        let start = needle.start;
+        self.highlight = Some(needle);
+        self.refresh_lines();
+        self.scroll_to_byte(start);
+        Ok(())
+    }
+
+    /// Scrolls so the line holding `byte` is the first one shown, or as near as the page allows.
+    fn scroll_to_byte(&mut self, byte: usize) {
+        let line = self.lines.partition_point(|line| line.offset <= byte);
+        self.scroll = line.saturating_sub(1).min(self.max_scroll());
+    }
+
+    /// The bytes marked on the page, if any.
+    #[cfg(test)]
+    pub fn highlight(&self) -> Option<&Range<usize>> {
+        self.highlight.as_ref()
     }
 
     /// Goes back one page in the history, or says there is none.
@@ -238,9 +277,7 @@ impl Session {
         let top = self.lines.get(self.scroll).map_or(0, |line| line.offset);
         self.view = self.view.next();
         self.refresh_lines();
-        // The last line that starts at or before the byte that was at the top.
-        let at = self.lines.partition_point(|line| line.offset <= top);
-        self.scroll = at.saturating_sub(1).min(self.max_scroll());
+        self.scroll_to_byte(top);
     }
 
     /// The first visible line.
@@ -291,7 +328,7 @@ impl Session {
 
     /// Makes the display lines again. Called after every change of the page or the view.
     fn refresh_lines(&mut self) {
-        self.lines = render(self.view, &self.page, None);
+        self.lines = render(self.view, &self.page, self.highlight.as_ref());
     }
 }
 

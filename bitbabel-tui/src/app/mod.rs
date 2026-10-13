@@ -876,4 +876,119 @@ mod test {
         let at = form.hits()[0].start();
         assert_eq!(&page.bytes()[at..at + 2], b"hi");
     }
+
+    fn highlight_of(app: &App) -> Option<std::ops::Range<usize>> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.highlight().cloned()
+    }
+
+    #[test]
+    fn enter_on_fresh_results_opens_the_picked_one_with_the_needle_marked() {
+        let mut app = searching("hello");
+        app.handle_key(press(KeyCode::Enter)); // search
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Down));
+        let hit = form_of(&app).hits()[2].clone();
+
+        app.handle_key(press(KeyCode::Enter)); // open row 3
+        assert_eq!(index_of(&app), *hit.index());
+        assert_eq!(highlight_of(&app), Some(hit.range()));
+        assert!(!search_open(&app));
+    }
+
+    #[test]
+    fn the_marked_text_is_the_needle() {
+        let mut app = searching("hello");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        let marked: String = session
+            .lines()
+            .iter()
+            .flat_map(|line| &line.segments)
+            .filter(|segment| segment.highlighted)
+            .map(|segment| segment.text.as_str())
+            .collect();
+        assert_eq!(marked, "hello");
+    }
+
+    #[test]
+    fn an_opened_result_is_a_visit_so_back_returns() {
+        let mut app = searching("hi");
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        assert_ne!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+        assert_eq!(highlight_of(&app), None);
+    }
+
+    #[test]
+    fn the_mark_stays_through_a_view_change_and_scrolling_but_not_a_page_change() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        let marked = highlight_of(&app);
+        assert!(marked.is_some());
+
+        app.handle_key(press(KeyCode::Char('e')));
+        app.handle_key(press(KeyCode::Char('j')));
+        assert_eq!(highlight_of(&app), marked);
+
+        app.handle_key(press(KeyCode::Char('l')));
+        assert_eq!(highlight_of(&app), None);
+    }
+
+    #[test]
+    fn opening_a_result_scrolls_to_the_match() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::MEDIUM),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "needle");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        // Try every result: the marked line must be on screen for each.
+        for pick in 0..10 {
+            app.handle_key(press(KeyCode::Char('/')));
+            // The picked row is kept between openings, so go to the top first.
+            for _ in 0..10 {
+                app.handle_key(press(KeyCode::Up));
+            }
+            for _ in 0..pick {
+                app.handle_key(press(KeyCode::Down));
+            }
+            app.handle_key(press(KeyCode::Enter));
+            let Mode::Explore(session) = app.mode() else {
+                panic!("should be exploring");
+            };
+            let visible = session
+                .lines()
+                .iter()
+                .skip(session.scroll())
+                .take(session.viewport());
+            let any_marked = visible
+                .flat_map(|line| &line.segments)
+                .any(|segment| segment.highlighted);
+            assert!(any_marked, "result {pick} is not on screen");
+        }
+    }
+
+    #[test]
+    fn enter_on_stale_results_searches_again_instead_of_opening() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        type_text(&mut app, "s"); // "his" is a new needle
+        app.handle_key(press(KeyCode::Enter));
+        assert!(search_open(&app));
+        assert!(form_of(&app).is_fresh());
+        assert_eq!(form_of(&app).hits().len(), 10);
+    }
 }

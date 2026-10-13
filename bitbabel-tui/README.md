@@ -96,8 +96,10 @@ of the view you are in, so what you type matches what you see:
 The box title names the view and shows the needle's size in bytes. A page holds 16, 3200 or
 6400 bytes, so a needle can be at most that long. Problems such as a character the text table
 does not have, or an odd number of hex digits, are shown in the box and never close it. Each
-search uses a new random seed. Press `Esc` to close the box; the needle and results are kept
-for the next `/`.
+search uses a new random seed. In the box, `↑` `↓` pick a result and `Enter` opens it: the page
+is shown with the needle marked and scrolled into view. The marked page is a normal visit, so
+`←` goes back. The mark stays while you scroll or change the view, and goes when you move to
+another page. Press `Esc` to close the box; the needle and results are kept for the next `/`.
 
 ## Which library am I in?
 

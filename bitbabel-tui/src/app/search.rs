@@ -35,6 +35,11 @@ impl Hit {
     pub fn start(&self) -> usize {
         self.start
     }
+
+    /// The bytes of the page that are the needle.
+    pub fn range(&self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
 }
 
 /// The needle being typed and the results of the last search.
@@ -134,10 +139,15 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     match key.code {
         KeyCode::Esc => session.close_search(),
         KeyCode::Enter => {
-            let fresh = session.search_form().is_some_and(SearchForm::is_fresh);
-            // Results for this needle are already there; Enter on them opens one (next step).
-            if !fresh {
-                run_search(session, random);
+            // Results for this needle are already there: Enter opens the picked one. Otherwise
+            // Enter searches.
+            let picked = session
+                .search_form()
+                .filter(|form| form.is_fresh())
+                .and_then(|form| form.hits().get(form.selected()).cloned());
+            match picked {
+                Some(hit) => open_hit(session, &hit),
+                None => run_search(session, random),
             }
         }
         KeyCode::Up | KeyCode::Down => {
@@ -159,6 +169,19 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         }
     }
     vec![]
+}
+
+/// Goes to the page of `hit`, marks the needle in it and closes the overlay. The overlay's
+/// results are kept, so the page stays one of a set.
+fn open_hit(session: &mut Session, hit: &Hit) {
+    match session.visit_with_highlight(hit.index().clone(), hit.range()) {
+        Ok(()) => session.close_search(),
+        Err(error) => {
+            if let Some(form) = session.search_form_mut() {
+                form.set_error(error.to_string());
+            }
+        }
+    }
 }
 
 /// Searches with a fresh random seed. Ctrl+R in the overlay does this for a new set of
