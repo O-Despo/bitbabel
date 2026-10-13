@@ -45,6 +45,8 @@ enum Overlay {
     Prompt(Prompt),
     /// The search box. Its form is kept on the session, so it outlives the overlay.
     Search,
+    /// The list of keys.
+    Help,
 }
 
 /// A message for the status line.
@@ -166,6 +168,23 @@ impl Session {
     /// Closes the search overlay. The needle and results are kept.
     pub fn close_search(&mut self) {
         if matches!(self.overlay, Overlay::Search) {
+            self.overlay = Overlay::None;
+        }
+    }
+
+    /// Whether the help screen is showing. Any key closes it.
+    pub fn help_is_open(&self) -> bool {
+        matches!(self.overlay, Overlay::Help)
+    }
+
+    /// Opens the help screen. It replaces any other overlay.
+    pub fn open_help(&mut self) {
+        self.overlay = Overlay::Help;
+    }
+
+    /// Closes the help screen.
+    pub fn close_help(&mut self) {
+        if matches!(self.overlay, Overlay::Help) {
             self.overlay = Overlay::None;
         }
     }

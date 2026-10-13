@@ -22,6 +22,13 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     {
         return search::handle_key(app, key);
     }
+    if let Mode::Explore(session) = &mut app.mode
+        && session.help_is_open()
+    {
+        // The help screen is read, not typed into: any key closes it.
+        session.close_help();
+        return vec![];
+    }
     let Some(action) = keymap::action_for(&key) else {
         return vec![];
     };
@@ -34,6 +41,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     };
     match action {
         Action::Quit => return vec![Effect::Quit],
+        Action::Help => session.open_help(),
         Action::NextPage => session.step(true),
         Action::PrevPage => session.step(false),
         Action::HistoryBack => session.back(),
@@ -87,6 +95,49 @@ mod test {
     use crate::config::TuiConfig;
     use crate::files::MemFiles;
     use bitbabel_core::LibraryConfig;
+
+    fn help_is_open(app: &App) -> bool {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.help_is_open()
+    }
+
+    #[test]
+    fn question_mark_opens_the_help_and_any_key_closes_it() {
+        let mut app = medium_app();
+        let before = index_of(&app);
+        app.handle_key(press(KeyCode::Char('?')));
+        assert!(help_is_open(&app));
+
+        // `l` only closes the help; it does not also turn the page.
+        app.handle_key(press(KeyCode::Char('l')));
+        assert!(!help_is_open(&app));
+        assert_eq!(index_of(&app), before);
+        // And now `l` is a command again.
+        app.handle_key(press(KeyCode::Char('l')));
+        assert_ne!(index_of(&app), before);
+    }
+
+    #[test]
+    fn question_mark_is_text_inside_a_prompt() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('g')));
+        app.handle_key(press(KeyCode::Char('?')));
+        assert!(!help_is_open(&app));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input(), "?");
+    }
+
+    #[test]
+    fn ctrl_c_still_quits_with_the_help_open() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('?')));
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(app.handle_key(ctrl_c), vec![Effect::Quit]);
+    }
 
     #[test]
     fn j_and_k_scroll_one_line_and_stop_at_the_top() {
