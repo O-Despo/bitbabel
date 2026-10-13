@@ -23,7 +23,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
     match app.mode() {
         Mode::Setup(form) => setup::draw(frame, area, form),
-        Mode::Explore => explore::draw(frame, area, app),
+        Mode::Explore(session) => explore::draw(frame, area, session),
     }
 }
 
@@ -178,5 +178,60 @@ mod test {
                 .unwrap()
                 .contains("small · key a576-7c85-fdef-3c24")
         );
+    }
+
+    #[test]
+    fn explore_draws_the_index_address_and_page() {
+        let app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let screen = render(&app, 80, 24);
+        let rows: Vec<&str> = screen.lines().collect();
+        assert!(rows[0].contains("small · canonical · text"));
+        assert!(rows[1].contains("index    "));
+        assert!(rows[1].contains("(16 B)"));
+        assert!(rows[2].contains("address  hexagon 0 · wall 1 · shelf 1 · volume 1"));
+        // The one page line starts with its offset in the gutter.
+        assert!(rows[3].contains("0000 "));
+        assert!(rows[21].contains("1 lines"));
+        assert!(rows[22].contains("q quit"));
+    }
+
+    #[test]
+    fn explore_draws_as_many_page_lines_as_fit() {
+        let app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::MEDIUM),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let screen = render(&app, 80, 24);
+        let rows: Vec<&str> = screen.lines().collect();
+        // 24 rows less the border, index, address, status and hint rows.
+        assert!(rows[3].contains("0000 "));
+        assert!(rows[20].contains("0440 "));
+        assert!(!rows[21].contains("0480 "));
+    }
+
+    #[test]
+    fn setup_draws_a_start_error_in_place_of_the_hint() {
+        let app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::new(15, 8)),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let screen = render(&app, 80, 24);
+        assert!(screen.contains("✗ page length must be even and non-zero, got 15"));
+        assert!(!screen.contains("enter start"));
     }
 }

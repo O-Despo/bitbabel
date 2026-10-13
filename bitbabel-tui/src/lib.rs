@@ -7,6 +7,7 @@ mod config;
 mod error;
 mod files;
 mod random;
+mod render;
 mod ui;
 
 use ratatui::DefaultTerminal;

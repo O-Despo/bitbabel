@@ -4,12 +4,14 @@
 mod effect;
 mod explore;
 mod library;
+mod session;
 mod setup;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
 pub use library::{LibraryChoice, fingerprint_text};
+pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
 use crate::config::TuiConfig;
@@ -19,12 +21,13 @@ use setup::Outcome;
 
 /// Which screen is active. Only the active mode's handler sees a key, so the same key can
 /// mean different things on different screens.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Mode {
     /// Choosing a size (and later a key).
     Setup(SetupForm),
-    /// Browsing pages.
-    Explore,
+    /// Browsing pages. The session is part of the mode, so there is no way to be exploring
+    /// without one.
+    Explore(Box<Session>),
 }
 
 /// The character a key types into a text box, if it types one. Ctrl or Alt alone are
@@ -41,8 +44,6 @@ fn typed_char(key: &KeyEvent) -> Option<char> {
 /// The whole state of the explorer.
 pub struct App {
     mode: Mode,
-    /// The library of this session. `None` while on the setup screen.
-    library: Option<LibraryChoice>,
     // Used by the random page key.
     #[allow(dead_code)]
     random: RandomFn,
@@ -54,13 +55,22 @@ impl App {
     /// a key); without one it opens the setup screen. `random` is where every random byte
     /// comes from, and `files` is how it reads files.
     pub fn new(config: TuiConfig, random: RandomFn, files: Box<dyn Files>) -> Self {
-        let (mode, library) = match config.size {
-            Some(size) => (Mode::Explore, Some(LibraryChoice::new(size, config.key))),
-            None => (Mode::Setup(SetupForm::new(config.key)), None),
+        let mut form = SetupForm::new(config.key.clone());
+        let mode = match config.size {
+            None => Mode::Setup(form),
+            Some(size) => match Session::new(LibraryChoice::new(size, config.key)) {
+                Ok(session) => Mode::Explore(Box::new(session)),
+                // The presets are always valid, so this is not expected from the CLI. The
+                // message is shown on the setup screen, on the size that was asked for.
+                Err(error) => {
+                    form.select_size(size);
+                    form.set_error(error.to_string());
+                    Mode::Setup(form)
+                }
+            },
         };
         App {
             mode,
-            library,
             random,
             files,
         }
@@ -72,8 +82,12 @@ impl App {
     }
 
     /// The library of this session, or `None` while choosing one.
+    #[cfg(test)]
     pub fn library(&self) -> Option<&LibraryChoice> {
-        self.library.as_ref()
+        match &self.mode {
+            Mode::Explore(session) => Some(session.library()),
+            Mode::Setup(_) => None,
+        }
     }
 
     /// Handles one key event and returns what the loop should do about it.
@@ -91,12 +105,14 @@ impl App {
             Mode::Setup(form) => match form.handle_key(key, self.files.as_ref()) {
                 Outcome::Editing(effects) => effects,
                 Outcome::Start(library) => {
-                    self.library = Some(library);
-                    self.mode = Mode::Explore;
+                    match Session::new(library) {
+                        Ok(session) => self.mode = Mode::Explore(Box::new(session)),
+                        Err(error) => form.set_error(error.to_string()),
+                    }
                     vec![]
                 }
             },
-            Mode::Explore => explore::handle_key(self, key),
+            Mode::Explore(_) => explore::handle_key(self, key),
         }
     }
 
@@ -104,7 +120,6 @@ impl App {
     /// history. A key from the command line is not carried over.
     fn start_over(&mut self) {
         self.mode = Mode::Setup(SetupForm::new(None));
-        self.library = None;
     }
 
     /// `len` random bytes from the injected source.
@@ -153,7 +168,7 @@ mod test {
     fn q_quits_and_changes_nothing() {
         let mut app = app();
         assert_eq!(app.handle_key(press(KeyCode::Char('q'))), [Effect::Quit]);
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
     }
 
     #[test]
@@ -202,7 +217,7 @@ mod test {
     #[test]
     fn a_size_starts_exploring_that_library() {
         let app = app();
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
         let library = app.library().unwrap();
         assert_eq!(library.size(), LibraryConfig::SMALL);
         assert!(library.key().is_none());
@@ -229,7 +244,7 @@ mod test {
         assert!(app.library().is_none());
 
         assert!(app.handle_key(press(KeyCode::Enter)).is_empty());
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
         assert_eq!(app.library().unwrap().size(), LibraryConfig::MEDIUM);
     }
 
@@ -277,7 +292,7 @@ mod test {
         for code in keys {
             assert!(app.handle_key(press(code)).is_empty());
         }
-        assert!(matches!(app.mode(), Mode::Explore));
+        assert!(matches!(app.mode(), Mode::Explore(_)));
         assert_eq!(
             app.library().unwrap().key(),
             Some(&Key::from_bytes([9; 32]))
@@ -306,5 +321,36 @@ mod test {
         let key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT);
         assert!(app.handle_key(key).is_empty());
         assert!(app.library().is_some());
+    }
+
+    #[test]
+    fn a_library_that_cannot_open_shows_setup_with_the_reason() {
+        // An odd page length is not a valid library.
+        let config = TuiConfig {
+            size: Some(LibraryConfig::new(15, 8)),
+            key: None,
+        };
+        let app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let Mode::Setup(form) = app.mode() else {
+            panic!("should fall back to the setup screen");
+        };
+        assert_eq!(
+            form.error(),
+            Some("page length must be even and non-zero, got 15")
+        );
+    }
+
+    #[test]
+    fn a_setup_error_is_cleared_by_the_next_key() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::new(15, 8)),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Down));
+        let Mode::Setup(form) = app.mode() else {
+            panic!("should still be on the setup screen");
+        };
+        assert_eq!(form.error(), None);
     }
 }

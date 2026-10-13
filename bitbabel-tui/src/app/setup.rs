@@ -61,6 +61,8 @@ pub struct SetupForm {
     source: KeySource,
     path: String,
     status: KeyStatus,
+    /// Why the library could not be started, if it could not.
+    error: Option<String>,
 }
 
 /// What a key did to the form.
@@ -86,6 +88,7 @@ impl SetupForm {
             source: KeySource::Canonical,
             path: String::new(),
             status: KeyStatus::Unchecked,
+            error: None,
         }
     }
 
@@ -117,6 +120,23 @@ impl SetupForm {
     /// What reading the key file found.
     pub fn status(&self) -> &KeyStatus {
         &self.status
+    }
+
+    /// Chooses `size` if the screen offers it, and leaves the choice alone if not.
+    pub(super) fn select_size(&mut self, size: LibraryConfig) {
+        if let Some(at) = SIZES.iter().position(|offered| *offered == size) {
+            self.size = at;
+        }
+    }
+
+    /// Why the library could not be started, if it could not.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Shows `message` on the screen. The next key clears it.
+    pub(super) fn set_error(&mut self, message: String) {
+        self.error = Some(message);
     }
 
     /// The rows on screen, top to bottom.
@@ -199,6 +219,7 @@ impl SetupForm {
     }
 
     pub(super) fn handle_key(&mut self, key: KeyEvent, files: &dyn Files) -> Outcome {
+        self.error = None;
         if self.focus == Row::Path {
             return self.handle_path_key(key, files);
         }
@@ -459,5 +480,23 @@ mod test {
             };
             assert_eq!(effects, [Effect::Quit]);
         }
+    }
+
+    #[test]
+    fn select_size_picks_an_offered_size_and_ignores_others() {
+        let mut form = SetupForm::new(None);
+        form.select_size(LibraryConfig::LARGE);
+        assert_eq!(form.size(), LibraryConfig::LARGE);
+        form.select_size(LibraryConfig::new(15, 8));
+        assert_eq!(form.size(), LibraryConfig::LARGE);
+    }
+
+    #[test]
+    fn an_error_stays_until_a_key_is_pressed() {
+        let mut form = SetupForm::new(None);
+        form.set_error("boom".to_string());
+        assert_eq!(form.error(), Some("boom"));
+        press(&mut form, KeyCode::Down);
+        assert_eq!(form.error(), None);
     }
 }
