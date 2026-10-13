@@ -5,7 +5,7 @@
 //! when the overlay is closed, so the results are still there to step through.
 
 use bitbabel_core::{BabelLibrary, PageIndex, SearchOptions};
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::effect::Effect;
 use super::needle;
@@ -139,6 +139,11 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     let Mode::Explore(session) = &mut app.mode else {
         return vec![];
     };
+    // Ctrl+R: the same needle with a new seed, so a new set of results.
+    if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::CONTROL {
+        run_search(session, random);
+        return vec![];
+    }
     match key.code {
         KeyCode::Esc => session.close_search(),
         KeyCode::Enter => {

@@ -60,7 +60,7 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &SearchForm, view: View, size: 
         lines.push(Line::raw(""));
     }
     lines.push(Line::styled(
-        "enter search   ↑/↓ pick   esc close",
+        "enter search/open   ↑/↓ pick   ctrl+r new set   esc close",
         Style::new().add_modifier(Modifier::DIM),
     ));
 

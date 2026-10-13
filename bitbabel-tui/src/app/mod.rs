@@ -1081,4 +1081,56 @@ mod test {
             "no search results, press / to search"
         );
     }
+
+    /// A random source that gives different bytes on every call, to tell two seeds apart.
+    fn counting_random(buf: &mut [u8]) -> Result<(), RandomError> {
+        use std::sync::atomic::{AtomicU8, Ordering};
+        static NEXT: AtomicU8 = AtomicU8::new(1);
+        buf.fill(NEXT.fetch_add(1, Ordering::Relaxed));
+        Ok(())
+    }
+
+    #[test]
+    fn ctrl_r_gives_a_new_set_for_the_same_needle() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, counting_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "hi");
+        app.handle_key(press(KeyCode::Enter));
+        let first = form_of(&app).hits().to_vec();
+
+        app.handle_key(press(KeyCode::Down));
+        let ctrl_r = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_r);
+        let form = form_of(&app);
+        assert_eq!(form.input(), "hi");
+        assert_eq!(form.hits().len(), 10);
+        assert_ne!(form.hits(), first.as_slice());
+        // A new set starts at the top again.
+        assert_eq!(form.selected(), 0);
+        assert!(search_open(&app));
+    }
+
+    #[test]
+    fn ctrl_r_with_a_bad_needle_is_an_inline_error() {
+        let mut app = searching("a中");
+        let ctrl_r = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_r);
+        assert!(
+            form_of(&app)
+                .error()
+                .unwrap()
+                .contains("not in the BitBabel text table")
+        );
+    }
+
+    #[test]
+    fn plain_r_in_the_box_is_a_letter_not_a_new_set() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_eq!(form_of(&app).input(), "r");
+    }
 }
