@@ -102,7 +102,7 @@ impl Session {
     }
 
     /// Shows `text` on the status line as an error.
-    fn set_error(&mut self, text: impl Into<String>) {
+    pub fn set_error(&mut self, text: impl Into<String>) {
         self.status = Some(Status {
             text: text.into(),
             error: true,

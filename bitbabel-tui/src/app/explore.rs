@@ -1,5 +1,6 @@
 //! Keys while exploring.
 
+use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::KeyEvent;
 
 use super::effect::Effect;
@@ -11,6 +12,10 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     let Some(action) = keymap::action_for(&key) else {
         return vec![];
     };
+    if action == Action::Random {
+        random_page(app);
+        return vec![];
+    }
     let Mode::Explore(session) = &mut app.mode else {
         return vec![];
     };
@@ -21,6 +26,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::HistoryBack => session.back(),
         Action::HistoryForward => session.forward(),
         Action::CycleView => session.cycle_view(),
+        Action::Random => {}
         Action::StartOver => app.start_over(),
         Action::ScrollDown => session.scroll_by(1),
         Action::ScrollUp => session.scroll_by(-1),
@@ -30,4 +36,26 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Bottom => session.scroll_to_bottom(),
     }
     vec![]
+}
+
+/// Visits a page chosen at random. Every byte string of the right length is a valid index, so
+/// the random bytes are the index: no hashing and no retry. If the random source fails, the
+/// page stays and the status line says why.
+fn random_page(app: &mut App) {
+    let Mode::Explore(session) = &app.mode else {
+        return;
+    };
+    let len = session.index().as_bytes().len();
+    let bytes = app.random_bytes(len);
+    let Mode::Explore(session) = &mut app.mode else {
+        return;
+    };
+    match bytes {
+        Ok(bytes) => {
+            if let Err(error) = session.visit(PageIndex::from_bytes(bytes)) {
+                session.set_error(error.to_string());
+            }
+        }
+        Err(error) => session.set_error(error.to_string()),
+    }
 }

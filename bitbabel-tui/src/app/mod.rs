@@ -59,8 +59,6 @@ pub struct App {
     mode: Mode,
     /// How many page lines fit on screen.
     viewport: usize,
-    // Used by the random page key.
-    #[allow(dead_code)]
     random: RandomFn,
     files: Box<dyn Files>,
 }
@@ -153,7 +151,6 @@ impl App {
     /// # Errors
     ///
     /// [`RandomError`] if the source fails.
-    #[allow(dead_code)]
     pub(crate) fn random_bytes(&self, len: usize) -> Result<Vec<u8>, RandomError> {
         let mut bytes = vec![0u8; len];
         (self.random)(&mut bytes)?;
@@ -466,5 +463,47 @@ mod test {
         app.handle_key(press(KeyCode::Right));
         app.handle_key(press(KeyCode::Right));
         assert_eq!(index_of(&app), third);
+    }
+
+    fn status_of(app: &App) -> Option<super::session::Status> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.status().cloned()
+    }
+
+    #[test]
+    fn r_visits_the_index_made_of_the_random_bytes() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('r')));
+        // The fake source fills every byte with 0xAB.
+        assert_eq!(
+            index_of(&app),
+            bitbabel_core::PageIndex::from_bytes(vec![0xAB; 3200])
+        );
+    }
+
+    #[test]
+    fn a_random_page_is_a_visit_so_back_returns() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('r')));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+    }
+
+    #[test]
+    fn a_failing_random_source_leaves_the_page_and_says_why() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_eq!(index_of(&app), start);
+        let status = status_of(&app).unwrap();
+        assert!(status.error);
+        assert_eq!(status.text, "cannot get random bytes from the OS: blocked");
     }
 }
