@@ -1,4 +1,5 @@
-//! Turns arbitrary bytes into a list of Library of Babel page indices, and back.
+//! Turns arbitrary bytes into a list of Library of Babel page indices, and back. It also holds
+//! the bookmark file, a list of saved page indices with labels.
 //!
 //! This re-addresses data; it does not compress or encrypt it. The crate works on bytes only:
 //! file IO, stdin and stdout, and key prompting belong to the caller.
