@@ -4,6 +4,9 @@
 mod effect;
 mod explore;
 mod library;
+// Used by the search box.
+#[allow(dead_code)]
+mod needle;
 mod prompt;
 mod session;
 mod setup;
