@@ -29,14 +29,23 @@ pub struct Session {
     /// The pages visited, with the current one marked.
     history: History,
     status: Option<Status>,
-    /// A one-line prompt that is open over the page, if any.
-    prompt: Option<Prompt>,
-    /// The search form. It keeps its results when the overlay is closed.
+    /// What is open over the page, if anything.
+    overlay: Overlay,
+    /// The search form. It keeps its needle and results when the overlay is closed.
     search: Option<SearchForm>,
-    /// Whether the search overlay is showing.
-    search_open: bool,
     /// The bytes of the page to mark, set when a search result is opened.
     highlight: Option<Range<usize>>,
+}
+
+/// What is open over the page. At most one thing is, so two overlays cannot both take keys.
+#[derive(Debug)]
+enum Overlay {
+    /// Only the page.
+    None,
+    /// A one-line prompt (go to, export).
+    Prompt(Prompt),
+    /// The search box. Its form is kept on the session, so it outlives the overlay.
+    Search,
 }
 
 /// A message for the status line.
@@ -69,9 +78,8 @@ impl Session {
             viewport,
             history: History::new(first),
             status: None,
-            prompt: None,
+            overlay: Overlay::None,
             search: None,
-            search_open: false,
             highlight: None,
         };
         session.refresh_lines();
@@ -109,16 +117,34 @@ impl Session {
         self.status.as_ref()
     }
 
-    /// The open prompt, if any.
+    /// The open prompt, if one is open.
     pub fn prompt(&self) -> Option<&Prompt> {
-        self.prompt.as_ref()
+        match &self.overlay {
+            Overlay::Prompt(prompt) => Some(prompt),
+            _ => None,
+        }
     }
 
     pub(super) fn prompt_mut(&mut self) -> Option<&mut Prompt> {
-        self.prompt.as_mut()
+        match &mut self.overlay {
+            Overlay::Prompt(prompt) => Some(prompt),
+            _ => None,
+        }
     }
 
-    /// The search form, if it has been opened.
+    /// Opens a prompt. It gets every key until it is closed, and it replaces any other overlay.
+    pub fn open_prompt(&mut self, kind: PromptKind) {
+        self.overlay = Overlay::Prompt(Prompt::new(kind));
+    }
+
+    /// Closes the open prompt, if one is open.
+    pub fn close_prompt(&mut self) {
+        if matches!(self.overlay, Overlay::Prompt(_)) {
+            self.overlay = Overlay::None;
+        }
+    }
+
+    /// The search form, if it has been opened. It is kept after the overlay is closed.
     pub fn search_form(&self) -> Option<&SearchForm> {
         self.search.as_ref()
     }
@@ -129,33 +155,26 @@ impl Session {
 
     /// Whether the search overlay is showing. It gets every key while it is.
     pub fn search_is_open(&self) -> bool {
-        self.search_open
+        matches!(self.overlay, Overlay::Search)
     }
 
-    /// Opens the search overlay, with the last needle and results if there were any.
+    /// Opens the search overlay, with the last needle and results if there were any. It
+    /// replaces any other overlay.
     pub fn open_search(&mut self) {
         self.search.get_or_insert_with(SearchForm::default);
-        self.search_open = true;
+        self.overlay = Overlay::Search;
     }
 
     /// Closes the search overlay. The needle and results are kept.
     pub fn close_search(&mut self) {
-        self.search_open = false;
-    }
-
-    /// Opens a prompt. It gets every key until it is closed.
-    pub fn open_prompt(&mut self, kind: PromptKind) {
-        self.prompt = Some(Prompt::new(kind));
-    }
-
-    /// Closes the open prompt, if any.
-    pub fn close_prompt(&mut self) {
-        self.prompt = None;
+        if matches!(self.overlay, Overlay::Search) {
+            self.overlay = Overlay::None;
+        }
     }
 
     /// Shows `message` inside the open prompt, which stays open.
     pub(super) fn set_prompt_error(&mut self, message: impl Into<String>) {
-        if let Some(prompt) = self.prompt.as_mut() {
+        if let Some(prompt) = self.prompt_mut() {
             prompt.set_error(message);
         }
     }

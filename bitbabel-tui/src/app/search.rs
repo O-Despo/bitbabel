@@ -279,4 +279,27 @@ mod test {
         assert_eq!(session.index(), &PageIndex::zero(16));
         assert!(session.search_is_open());
     }
+
+    #[test]
+    fn opening_one_overlay_replaces_the_other() {
+        use crate::app::prompt::PromptKind;
+
+        let choice = LibraryChoice::new(LibraryConfig::SMALL, None);
+        let mut session = Session::new(choice, 18).unwrap();
+        session.open_search();
+        assert!(session.search_is_open());
+        assert!(session.prompt().is_none());
+
+        session.open_prompt(PromptKind::GoTo);
+        assert!(session.prompt().is_some());
+        assert!(!session.search_is_open());
+        // The form and its needle are still kept for the next time.
+        assert!(session.search_form().is_some());
+
+        // Closing the one that is not open does nothing.
+        session.close_search();
+        assert!(session.prompt().is_some());
+        session.close_prompt();
+        assert!(session.prompt().is_none());
+    }
 }
