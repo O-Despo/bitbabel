@@ -86,7 +86,7 @@ impl BookmarkFile {
     ///
     /// The file is unchanged on an error.
     pub fn push(&mut self, time: u64, label: &str, index: PageIndex) -> Result<(), BookmarkError> {
-        let bookmark = Bookmark::new(time, label, index).map_err(BookmarkError::Invalid)?;
+        let bookmark = Bookmark::new(time, label, index)?;
         let expected = self.settings.size().page_len();
         let actual = bookmark.index().as_bytes().len();
         if actual != expected {
@@ -117,8 +117,7 @@ impl BookmarkFile {
             .bookmarks
             .get(position)
             .ok_or(BookmarkError::NoSuchBookmark { position, len })?;
-        let renamed = Bookmark::new(old.time(), label, old.index().clone())
-            .map_err(BookmarkError::Invalid)?;
+        let renamed = Bookmark::new(old.time(), label, old.index().clone())?;
         self.bookmarks[position] = renamed;
         Ok(())
     }

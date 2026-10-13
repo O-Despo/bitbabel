@@ -389,3 +389,10 @@ impl fmt::Display for LineError {
 
 // No `source()`, for the same reason as `IndexFormatError`.
 impl Error for LineError {}
+
+impl From<LineError> for BookmarkError {
+    /// A bookmark that could not be built, as opposed to a line that could not be read.
+    fn from(error: LineError) -> Self {
+        BookmarkError::Invalid(error)
+    }
+}
