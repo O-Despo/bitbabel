@@ -119,7 +119,7 @@ const BINDINGS: &[Binding] = &[
     bind(
         Pattern::Code(KeyCode::Left),
         Action::HistoryBack,
-        Some("←/→ history"),
+        None,
         Some("back in history"),
     ),
     bind(
@@ -176,12 +176,17 @@ const BINDINGS: &[Binding] = &[
         None,
         Some("start over with another library"),
     ),
-    bind(Pattern::Char('?'), Action::Help, None, Some("this help")),
     bind(
         Pattern::Char('q'),
         Action::Quit,
         Some("q quit"),
         Some("quit (Ctrl+c also quits)"),
+    ),
+    bind(
+        Pattern::Char('?'),
+        Action::Help,
+        Some("? help"),
+        Some("this help"),
     ),
     bind(Pattern::Ctrl('c'), Action::Quit, None, None),
 ];
@@ -370,7 +375,7 @@ mod test {
         let hints = hints();
         assert_eq!(
             hints,
-            "h/l page  j/k scroll  ←/→ history  r random  g go to  / search  e view  q quit"
+            "h/l page  j/k scroll  r random  g go to  / search  e view  q quit  ? help"
         );
         assert!(hints.chars().count() <= 78);
     }

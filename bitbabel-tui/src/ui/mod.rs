@@ -315,7 +315,10 @@ mod test {
             fake_random,
             Box::new(MemFiles::default()),
         );
-        assert!(!render(&app, 80, 24).contains("any key closes"));
+        let page = render(&app, 80, 24);
+        assert!(!page.contains("any key closes"));
+        // The hint bar says where the help is.
+        assert!(page.contains("q quit  ? help"));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         let screen = render(&app, 80, 24);
