@@ -16,6 +16,7 @@ pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
 use crate::config::TuiConfig;
 use crate::files::Files;
+use crate::keymap;
 use crate::random::{RandomError, RandomFn};
 use setup::Outcome;
 
@@ -30,6 +31,13 @@ pub enum Mode {
     Explore(Box<Session>),
 }
 
+/// Rows of the explore screen that are not page lines: the border (2), the index line, the
+/// address line, the status line and the hint line.
+pub const EXPLORE_CHROME_ROWS: u16 = 6;
+
+/// The terminal height assumed until the loop reports the real one: the smallest that is allowed.
+const DEFAULT_HEIGHT: u16 = 24;
+
 /// The character a key types into a text box, if it types one. Ctrl or Alt alone are
 /// shortcuts, not typing; Ctrl+Alt together is how AltGr reports `@`, `~` and `\` on Windows.
 fn typed_char(key: &KeyEvent) -> Option<char> {
@@ -41,9 +49,16 @@ fn typed_char(key: &KeyEvent) -> Option<char> {
     (ctrl == alt).then_some(c)
 }
 
+/// How many page lines fit in a terminal `rows` tall.
+fn viewport_for(rows: u16) -> usize {
+    usize::from(rows.saturating_sub(EXPLORE_CHROME_ROWS))
+}
+
 /// The whole state of the explorer.
 pub struct App {
     mode: Mode,
+    /// How many page lines fit on screen.
+    viewport: usize,
     // Used by the random page key.
     #[allow(dead_code)]
     random: RandomFn,
@@ -55,10 +70,11 @@ impl App {
     /// a key); without one it opens the setup screen. `random` is where every random byte
     /// comes from, and `files` is how it reads files.
     pub fn new(config: TuiConfig, random: RandomFn, files: Box<dyn Files>) -> Self {
+        let viewport = viewport_for(DEFAULT_HEIGHT);
         let mut form = SetupForm::new(config.key.clone());
         let mode = match config.size {
             None => Mode::Setup(form),
-            Some(size) => match Session::new(LibraryChoice::new(size, config.key)) {
+            Some(size) => match Session::new(LibraryChoice::new(size, config.key), viewport) {
                 Ok(session) => Mode::Explore(Box::new(session)),
                 // The presets are always valid, so this is not expected from the CLI. The
                 // message is shown on the setup screen, on the size that was asked for.
@@ -71,8 +87,18 @@ impl App {
         };
         App {
             mode,
+            viewport,
             random,
             files,
+        }
+    }
+
+    /// Tells the app how tall the terminal is, so the page knows how many lines fit. Called
+    /// at start and on every resize.
+    pub fn set_terminal_height(&mut self, rows: u16) {
+        self.viewport = viewport_for(rows);
+        if let Mode::Explore(session) = &mut self.mode {
+            session.set_viewport(self.viewport);
         }
     }
 
@@ -98,14 +124,14 @@ impl App {
         if key.kind != KeyEventKind::Press {
             return vec![];
         }
-        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+        if keymap::is_interrupt(&key) {
             return vec![Effect::Quit];
         }
         match &mut self.mode {
             Mode::Setup(form) => match form.handle_key(key, self.files.as_ref()) {
                 Outcome::Editing(effects) => effects,
                 Outcome::Start(library) => {
-                    match Session::new(library) {
+                    match Session::new(library, self.viewport) {
                         Ok(session) => self.mode = Mode::Explore(Box::new(session)),
                         Err(error) => form.set_error(error.to_string()),
                     }
@@ -352,5 +378,69 @@ mod test {
             panic!("should still be on the setup screen");
         };
         assert_eq!(form.error(), None);
+    }
+
+    fn medium_app() -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::MEDIUM),
+            key: None,
+        };
+        App::new(config, fake_random, Box::new(MemFiles::default()))
+    }
+
+    fn scroll_of(app: &App) -> usize {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.scroll()
+    }
+
+    #[test]
+    fn j_and_k_scroll_one_line_and_stop_at_the_top() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(scroll_of(&app), 0);
+        app.handle_key(press(KeyCode::Char('j')));
+        app.handle_key(press(KeyCode::Char('j')));
+        assert_eq!(scroll_of(&app), 2);
+        app.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(scroll_of(&app), 1);
+    }
+
+    #[test]
+    fn home_end_and_ctrl_d_u_move_the_scroll() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::End));
+        assert_eq!(scroll_of(&app), 50 - 18);
+        app.handle_key(press(KeyCode::Home));
+        assert_eq!(scroll_of(&app), 0);
+        let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+        app.handle_key(ctrl('d'));
+        assert_eq!(scroll_of(&app), 9);
+        app.handle_key(ctrl('u'));
+        assert_eq!(scroll_of(&app), 0);
+    }
+
+    #[test]
+    fn a_taller_terminal_shows_more_lines_and_clamps_the_scroll() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::End));
+        app.set_terminal_height(40);
+        assert_eq!(scroll_of(&app), 50 - 34);
+    }
+
+    #[test]
+    fn the_setup_screen_hands_its_height_to_the_new_session() {
+        let mut app = App::new(
+            TuiConfig::default(),
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        app.set_terminal_height(40);
+        app.handle_key(press(KeyCode::Enter));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.viewport(), 34);
     }
 }

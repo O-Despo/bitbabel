@@ -6,9 +6,10 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use crate::app::Session;
+use crate::keymap;
 use crate::render::DisplayLine;
 
 /// How many characters of an index or hexagon are kept at each end when it is shortened.
@@ -44,27 +45,37 @@ pub fn draw(frame: &mut Frame, area: Rect, session: &Session) {
     draw_page(frame, page_area, session);
     frame.render_widget(
         Line::styled(
-            format!("{} lines", session.lines().len()),
+            format!(
+                "ok · line {}/{}",
+                session.scroll() + 1,
+                session.lines().len()
+            ),
             Style::new().add_modifier(Modifier::DIM),
         ),
         status_row,
     );
     frame.render_widget(
-        Line::styled(
-            "s start over   q quit",
-            Style::new().add_modifier(Modifier::DIM),
-        ),
+        Line::styled(keymap::hints(), Style::new().add_modifier(Modifier::DIM)),
         hint_row,
     );
 }
 
 /// The page lines that fit, each with its offset in the gutter.
 fn draw_page(frame: &mut Frame, area: Rect, session: &Session) {
-    let [gutter_area, text_area] =
-        Layout::horizontal([Constraint::Length(GUTTER), Constraint::Min(1)]).areas(area);
+    let [gutter_area, text_area, bar_area] = Layout::horizontal([
+        Constraint::Length(GUTTER),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
     let mut gutter = Vec::new();
     let mut lines = Vec::new();
-    for line in session.lines().iter().take(usize::from(area.height)) {
+    let visible = session
+        .lines()
+        .iter()
+        .skip(session.scroll())
+        .take(usize::from(area.height));
+    for line in visible {
         gutter.push(Line::styled(
             format!("{:04x} ", line.offset),
             Style::new().dim(),
@@ -73,6 +84,15 @@ fn draw_page(frame: &mut Frame, area: Rect, session: &Session) {
     }
     frame.render_widget(Paragraph::new(gutter), gutter_area);
     frame.render_widget(Paragraph::new(lines), text_area);
+
+    // A page that fits has nothing to scroll, so it has no scrollbar.
+    if session.lines().len() > usize::from(area.height) {
+        let mut state = ScrollbarState::new(session.lines().len())
+            .viewport_content_length(usize::from(area.height))
+            .position(session.scroll());
+        let bar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+        frame.render_stateful_widget(bar, bar_area, &mut state);
+    }
 }
 
 /// One page line, with highlighted runs reversed.

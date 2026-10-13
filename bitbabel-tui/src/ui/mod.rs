@@ -198,7 +198,8 @@ mod test {
         assert!(rows[2].contains("address  hexagon 0 · wall 1 · shelf 1 · volume 1"));
         // The one page line starts with its offset in the gutter.
         assert!(rows[3].contains("0000 "));
-        assert!(rows[21].contains("1 lines"));
+        assert!(rows[21].contains("ok · line 1/1"));
+        assert!(rows[22].contains("j/k scroll"));
         assert!(rows[22].contains("q quit"));
     }
 
@@ -233,5 +234,57 @@ mod test {
         let screen = render(&app, 80, 24);
         assert!(screen.contains("✗ page length must be even and non-zero, got 15"));
         assert!(!screen.contains("enter start"));
+    }
+
+    #[test]
+    fn scrolling_moves_the_page_lines_and_the_status() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::MEDIUM),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let press = |app: &mut App, code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Char('j'));
+        }
+        let rows: Vec<String> = render(&app, 80, 24).lines().map(String::from).collect();
+        // Line 5 (offset 0x140) is now the first page row.
+        assert!(rows[3].starts_with("│0140 "));
+        assert!(rows[21].contains("ok · line 6/50"));
+
+        press(&mut app, KeyCode::End);
+        let rows: Vec<String> = render(&app, 80, 24).lines().map(String::from).collect();
+        assert!(rows[21].contains("ok · line 33/50"));
+        // The last page line (offset 49 * 0x40 = 0xc40) is on the last page row.
+        assert!(rows[20].starts_with("│0c40 "));
+    }
+
+    #[test]
+    fn the_page_rows_on_screen_match_what_the_app_calls_the_viewport() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::MEDIUM),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        app.set_terminal_height(30);
+        let screen = render(&app, 80, 30);
+        // Count rows that start with a gutter offset.
+        let page_rows = screen
+            .lines()
+            .filter(|row| row.starts_with("│0") && row.chars().nth(5) == Some(' '))
+            .count();
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(page_rows, session.viewport());
+        assert_eq!(session.viewport(), 24);
     }
 }

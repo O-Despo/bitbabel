@@ -1,21 +1,28 @@
 //! Keys while exploring.
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::KeyEvent;
 
-use super::App;
 use super::effect::Effect;
+use super::{App, Mode};
+use crate::keymap::{self, Action};
 
-/// Handles a key press in [`Mode::Explore`](super::Mode::Explore).
+/// Handles a key press in [`Mode::Explore`].
 pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
-    if !key.modifiers.is_empty() {
+    let Some(action) = keymap::action_for(&key) else {
         return vec![];
+    };
+    let Mode::Explore(session) = &mut app.mode else {
+        return vec![];
+    };
+    match action {
+        Action::Quit => return vec![Effect::Quit],
+        Action::StartOver => app.start_over(),
+        Action::ScrollDown => session.scroll_by(1),
+        Action::ScrollUp => session.scroll_by(-1),
+        Action::HalfPageDown => session.scroll_half_page(true),
+        Action::HalfPageUp => session.scroll_half_page(false),
+        Action::Top => session.scroll_to_top(),
+        Action::Bottom => session.scroll_to_bottom(),
     }
-    match key.code {
-        KeyCode::Char('q') => vec![Effect::Quit],
-        KeyCode::Char('s') => {
-            app.start_over();
-            vec![]
-        }
-        _ => vec![],
-    }
+    vec![]
 }
