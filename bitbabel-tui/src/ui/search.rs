@@ -12,8 +12,14 @@ use crate::app::SearchForm;
 use crate::render::View;
 
 const WIDTH: u16 = 68;
-/// The border, the needle line, the error line, ten results and the key line.
-const HEIGHT: u16 = 15;
+/// The rows that are not result rows: the needle line and the error line.
+const HEADER_ROWS: usize = 2;
+/// The key line at the bottom of the box.
+const FOOTER_ROWS: usize = 1;
+/// The top and bottom border.
+const BORDER_ROWS: usize = 2;
+/// The box is tall enough for the header, ten results, the footer and the border.
+const HEIGHT: u16 = (BORDER_ROWS + HEADER_ROWS + crate::app::RESULTS + FOOTER_ROWS) as u16;
 
 /// How much of an index is shown at each end.
 const ENDS: usize = 12;
@@ -55,8 +61,8 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &SearchForm, view: View, size: 
         };
         lines.push(Line::styled(text, style));
     }
-    // Keep the key line on the last row of the box.
-    while lines.len() < usize::from(HEIGHT) - 3 {
+    // Pad to the full height so the key line sits on the last row inside the border.
+    while lines.len() < usize::from(HEIGHT) - BORDER_ROWS - FOOTER_ROWS {
         lines.push(Line::raw(""));
     }
     lines.push(Line::styled(

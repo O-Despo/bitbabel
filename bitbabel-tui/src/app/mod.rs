@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 pub use effect::Effect;
 pub use library::{LibraryChoice, fingerprint_text};
 pub use prompt::Prompt;
-pub use search::SearchForm;
+pub use search::{RESULTS, SearchForm};
 pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
