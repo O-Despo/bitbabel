@@ -3,8 +3,9 @@
 A terminal explorer for the BitBabel library, one library at a time. It is started with
 `bitbabel tui`.
 
-It starts, lets you choose a library, always shows which library you are in, and lets you move
-through its pages. Search and bookmarks come in later steps.
+It starts, lets you choose a library, always shows which library you are in, lets you move
+through its pages, and finds pages that contain your text. Press `?` in the explorer for the
+list of keys. Bookmarks come in a later step.
 
 ## Start it
 
@@ -68,8 +69,14 @@ and volume), then the page itself with the offset of each line on the left.
 | `r` | A random page. It is not repeatable, so keep a find by its index |
 | `e` | Show the page as text, hex, base64 or utf8 |
 | `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |
+| `n` `N` | Next and previous result of the last search |
 | `s` | Start over |
+| `?` | Show every key |
 | `q` | Quit |
+
+The bar at the bottom of the screen shows the keys you use most, ending in `? help`. `?` opens a
+list of every key, made from the same table the keys are read from, so it is always complete.
+Any key closes it.
 
 A page is 16, 3200 or 6400 bytes, so a medium page is 50 lines of text. The `line 3/50` at the
 bottom says where you are.

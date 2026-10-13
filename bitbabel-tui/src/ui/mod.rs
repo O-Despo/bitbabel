@@ -1,6 +1,7 @@
 //! Drawing only. It reads the [`App`] and never changes it.
 
 mod explore;
+mod help;
 mod prompt;
 mod search;
 mod setup;
@@ -35,6 +36,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
             {
                 let size = session.library().size();
                 search::draw(frame, area, form, session.view(), size);
+            }
+            if session.help_is_open() {
+                help::draw(frame, area);
             }
         }
     }
@@ -299,6 +303,34 @@ mod test {
         };
         assert_eq!(page_rows, session.viewport());
         assert_eq!(session.viewport(), 24);
+    }
+
+    #[test]
+    fn the_help_screen_lists_every_key_from_the_key_map() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        );
+        let page = render(&app, 80, 24);
+        assert!(!page.contains("any key closes"));
+        // The hint bar says where the help is.
+        assert!(page.contains("q quit  ? help"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        let screen = render(&app, 80, 24);
+        assert!(screen.contains("any key closes"));
+        for (key, what) in crate::keymap::help_entries() {
+            assert!(screen.contains(what), "{key}: {what}");
+        }
+        assert!(screen.contains("Ctrl+d"));
+        assert!(screen.contains("scroll down half a screen"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!render(&app, 80, 24).contains("any key closes"));
     }
 
     #[test]

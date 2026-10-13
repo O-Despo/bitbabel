@@ -21,6 +21,7 @@ pub enum Action {
     Export,
     CycleView,
     Quit,
+    Help,
     StartOver,
     ScrollDown,
     ScrollUp,
@@ -47,42 +48,147 @@ struct Binding {
     action: Action,
     /// The text this key adds to the hint bar, if it is shown there.
     hint: Option<&'static str>,
+    /// What the key does, for the help screen. A key with `None` is not listed there.
+    help: Option<&'static str>,
 }
 
-const fn bind(pattern: Pattern, action: Action, hint: Option<&'static str>) -> Binding {
+const fn bind(
+    pattern: Pattern,
+    action: Action,
+    hint: Option<&'static str>,
+    help: Option<&'static str>,
+) -> Binding {
     Binding {
         pattern,
         action,
         hint,
+        help,
     }
 }
 
 /// Every key, in the order the hint bar shows them.
 const BINDINGS: &[Binding] = &[
-    bind(Pattern::Char('h'), Action::PrevPage, Some("h/l page")),
-    bind(Pattern::Char('l'), Action::NextPage, None),
-    bind(Pattern::Char('j'), Action::ScrollDown, Some("j/k scroll")),
-    bind(Pattern::Char('k'), Action::ScrollUp, None),
-    bind(Pattern::Ctrl('d'), Action::HalfPageDown, None),
-    bind(Pattern::Ctrl('u'), Action::HalfPageUp, None),
-    bind(Pattern::Code(KeyCode::Home), Action::Top, None),
-    bind(Pattern::Code(KeyCode::End), Action::Bottom, None),
+    bind(
+        Pattern::Char('h'),
+        Action::PrevPage,
+        Some("h/l page"),
+        Some("previous page"),
+    ),
+    bind(
+        Pattern::Char('l'),
+        Action::NextPage,
+        None,
+        Some("next page"),
+    ),
+    bind(
+        Pattern::Char('j'),
+        Action::ScrollDown,
+        Some("j/k scroll"),
+        Some("scroll down one line"),
+    ),
+    bind(
+        Pattern::Char('k'),
+        Action::ScrollUp,
+        None,
+        Some("scroll up one line"),
+    ),
+    bind(
+        Pattern::Ctrl('d'),
+        Action::HalfPageDown,
+        None,
+        Some("scroll down half a screen"),
+    ),
+    bind(
+        Pattern::Ctrl('u'),
+        Action::HalfPageUp,
+        None,
+        Some("scroll up half a screen"),
+    ),
+    bind(
+        Pattern::Code(KeyCode::Home),
+        Action::Top,
+        None,
+        Some("top of the page"),
+    ),
+    bind(
+        Pattern::Code(KeyCode::End),
+        Action::Bottom,
+        None,
+        Some("bottom of the page"),
+    ),
     bind(
         Pattern::Code(KeyCode::Left),
         Action::HistoryBack,
-        Some("←/→ history"),
+        None,
+        Some("back in history"),
     ),
-    bind(Pattern::Code(KeyCode::Right), Action::HistoryForward, None),
-    bind(Pattern::Char('r'), Action::Random, Some("r random")),
-    bind(Pattern::Char('g'), Action::GoTo, Some("g go to")),
-    bind(Pattern::Char('/'), Action::Search, Some("/ search")),
-    bind(Pattern::Char('n'), Action::NextResult, None),
-    bind(Pattern::Char('N'), Action::PrevResult, None),
-    bind(Pattern::Char('x'), Action::Export, None),
-    bind(Pattern::Char('e'), Action::CycleView, Some("e view")),
-    bind(Pattern::Char('s'), Action::StartOver, None),
-    bind(Pattern::Char('q'), Action::Quit, Some("q quit")),
-    bind(Pattern::Ctrl('c'), Action::Quit, None),
+    bind(
+        Pattern::Code(KeyCode::Right),
+        Action::HistoryForward,
+        None,
+        Some("forward in history"),
+    ),
+    bind(
+        Pattern::Char('r'),
+        Action::Random,
+        Some("r random"),
+        Some("a random page"),
+    ),
+    bind(
+        Pattern::Char('g'),
+        Action::GoTo,
+        Some("g go to"),
+        Some("go to an index from a file"),
+    ),
+    bind(
+        Pattern::Char('/'),
+        Action::Search,
+        Some("/ search"),
+        Some("search for text"),
+    ),
+    bind(
+        Pattern::Char('n'),
+        Action::NextResult,
+        None,
+        Some("next search result"),
+    ),
+    bind(
+        Pattern::Char('N'),
+        Action::PrevResult,
+        None,
+        Some("previous search result"),
+    ),
+    bind(
+        Pattern::Char('x'),
+        Action::Export,
+        None,
+        Some("save the index to a new file"),
+    ),
+    bind(
+        Pattern::Char('e'),
+        Action::CycleView,
+        Some("e view"),
+        Some("cycle text, hex, base64, utf8"),
+    ),
+    bind(
+        Pattern::Char('s'),
+        Action::StartOver,
+        None,
+        Some("start over, another library"),
+    ),
+    bind(
+        Pattern::Char('q'),
+        Action::Quit,
+        Some("q quit"),
+        Some("quit (Ctrl+c also quits)"),
+    ),
+    bind(
+        Pattern::Char('?'),
+        Action::Help,
+        Some("? help"),
+        Some("this help"),
+    ),
+    bind(Pattern::Ctrl('c'), Action::Quit, None, None),
 ];
 
 /// The action for `key`, if it has one.
@@ -107,6 +213,27 @@ pub fn action_for(key: &KeyEvent) -> Option<Action> {
 /// Whether `key` is Ctrl+C, which quits from every mode.
 pub fn is_interrupt(key: &KeyEvent) -> bool {
     key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL
+}
+
+impl Pattern {
+    /// How the key is written on the help screen: `h`, `Ctrl+d`, `Home`.
+    fn label(self) -> String {
+        match self {
+            Pattern::Char(c) => c.to_string(),
+            Pattern::Ctrl(c) => format!("Ctrl+{c}"),
+            Pattern::Code(KeyCode::Left) => "←".to_string(),
+            Pattern::Code(KeyCode::Right) => "→".to_string(),
+            Pattern::Code(code) => format!("{code}"),
+        }
+    }
+}
+
+/// Every key the help screen lists, with what it does, in table order.
+pub fn help_entries() -> Vec<(String, &'static str)> {
+    BINDINGS
+        .iter()
+        .filter_map(|binding| Some((binding.pattern.label(), binding.help?)))
+        .collect()
 }
 
 /// The hint bar text, from the table.
@@ -206,6 +333,35 @@ mod test {
     }
 
     #[test]
+    fn question_mark_is_help() {
+        assert_eq!(plain('?'), Some(Action::Help));
+    }
+
+    #[test]
+    fn the_help_entries_come_from_the_table() {
+        let entries = help_entries();
+        let find = |key: &str| {
+            entries
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, what)| *what)
+        };
+        assert_eq!(find("h"), Some("previous page"));
+        assert_eq!(find("Ctrl+d"), Some("scroll down half a screen"));
+        assert_eq!(find("Home"), Some("top of the page"));
+        assert_eq!(find("←"), Some("back in history"));
+        assert_eq!(find("?"), Some("this help"));
+        // Ctrl+c is the same as `q` and has no line of its own.
+        assert_eq!(find("Ctrl+c"), None);
+    }
+
+    #[test]
+    fn every_key_but_ctrl_c_is_on_the_help_screen() {
+        let listed = help_entries().len();
+        assert_eq!(listed, BINDINGS.len() - 1);
+    }
+
+    #[test]
     fn no_two_bindings_share_a_key() {
         for (at, binding) in BINDINGS.iter().enumerate() {
             for other in &BINDINGS[at + 1..] {
@@ -219,7 +375,7 @@ mod test {
         let hints = hints();
         assert_eq!(
             hints,
-            "h/l page  j/k scroll  ←/→ history  r random  g go to  / search  e view  q quit"
+            "h/l page  j/k scroll  r random  g go to  / search  e view  q quit  ? help"
         );
         assert!(hints.chars().count() <= 78);
     }
