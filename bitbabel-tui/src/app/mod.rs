@@ -4,10 +4,9 @@
 mod effect;
 mod explore;
 mod library;
-// Used by the search box.
-#[allow(dead_code)]
 mod needle;
 mod prompt;
+mod search;
 mod session;
 mod setup;
 
@@ -16,6 +15,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 pub use effect::Effect;
 pub use library::{LibraryChoice, fingerprint_text};
 pub use prompt::Prompt;
+pub use search::SearchForm;
 pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
@@ -706,5 +706,174 @@ mod test {
         assert_eq!(index_of(&app), bitbabel_core::PageIndex::from_u64(7, 16));
         app.handle_key(press(KeyCode::Left));
         assert_eq!(index_of(&app), start);
+    }
+
+    fn form_of(app: &App) -> SearchForm {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session
+            .search_form()
+            .expect("the search form should exist")
+            .clone()
+    }
+
+    fn search_open(app: &App) -> bool {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.search_is_open()
+    }
+
+    /// A small-library app with the search overlay open and `needle` typed.
+    fn searching(needle: &str) -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, needle);
+        app
+    }
+
+    #[test]
+    fn slash_opens_the_search_overlay_and_esc_closes_it() {
+        let mut app = medium_app();
+        assert!(!search_open(&app));
+        app.handle_key(press(KeyCode::Char('/')));
+        assert!(search_open(&app));
+        app.handle_key(press(KeyCode::Esc));
+        assert!(!search_open(&app));
+    }
+
+    #[test]
+    fn typing_in_the_search_box_never_runs_a_command() {
+        let mut app = searching("");
+        let start = index_of(&app);
+        // `l`, `r` and `q` are commands outside the box.
+        type_text(&mut app, "lrq");
+        assert_eq!(form_of(&app).input(), "lrq");
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(form_of(&app).input(), "lr");
+    }
+
+    #[test]
+    fn enter_lists_ten_pages_that_each_hold_the_needle_where_it_says() {
+        let mut app = searching("hello");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert_eq!(form.error(), None);
+        assert_eq!(form.hits().len(), 10);
+        assert!(form.is_fresh());
+
+        let library = bitbabel_core::BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
+        for hit in form.hits() {
+            let page = library.page_at(hit.index()).unwrap();
+            let at = hit.start();
+            assert_eq!(&page.bytes()[at..at + 5], b"hello");
+        }
+    }
+
+    #[test]
+    fn the_same_seed_and_needle_give_the_same_results() {
+        let mut first = searching("hi");
+        first.handle_key(press(KeyCode::Enter));
+        let mut second = searching("hi");
+        second.handle_key(press(KeyCode::Enter));
+        assert_eq!(form_of(&first).hits(), form_of(&second).hits());
+    }
+
+    #[test]
+    fn a_bad_needle_is_an_inline_error_and_keeps_typing_possible() {
+        let mut app = searching("a中");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert!(
+            form.error()
+                .unwrap()
+                .contains("not in the BitBabel text table")
+        );
+        assert!(form.hits().is_empty());
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(form_of(&app).error(), None);
+    }
+
+    #[test]
+    fn a_needle_longer_than_a_page_names_the_limit() {
+        let mut app = searching(&"a".repeat(17));
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(
+            form_of(&app).error(),
+            Some("needle is 17 bytes but a page is only 16")
+        );
+    }
+
+    #[test]
+    fn an_empty_needle_asks_for_something_to_search_for() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(form_of(&app).error(), Some("type something to search for"));
+    }
+
+    #[test]
+    fn a_failing_random_source_is_an_error_and_no_search_happens() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "hi");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert!(form.hits().is_empty());
+        assert_eq!(
+            form.error(),
+            Some("cannot get random bytes from the OS: blocked")
+        );
+    }
+
+    #[test]
+    fn editing_the_needle_makes_the_results_stale_and_arrows_pick_a_row() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Down));
+        assert_eq!(form_of(&app).selected(), 2);
+        app.handle_key(press(KeyCode::Up));
+        assert_eq!(form_of(&app).selected(), 1);
+
+        type_text(&mut app, "x");
+        assert!(!form_of(&app).is_fresh());
+        // The old results are still there to look at.
+        assert_eq!(form_of(&app).hits().len(), 10);
+    }
+
+    #[test]
+    fn the_overlay_keeps_its_needle_and_results_when_closed_and_reopened() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('/')));
+        assert_eq!(form_of(&app).input(), "hi");
+        assert_eq!(form_of(&app).hits().len(), 10);
+    }
+
+    #[test]
+    fn the_needle_is_read_in_the_current_view() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('e'))); // hex
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "6869");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert_eq!(form.error(), None);
+        let library = bitbabel_core::BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
+        let page = library.page_at(form.hits()[0].index()).unwrap();
+        let at = form.hits()[0].start();
+        assert_eq!(&page.bytes()[at..at + 2], b"hi");
     }
 }

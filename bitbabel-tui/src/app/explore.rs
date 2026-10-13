@@ -5,6 +5,7 @@ use ratatui::crossterm::event::KeyEvent;
 
 use super::effect::Effect;
 use super::prompt::{self, PromptKind};
+use super::search;
 use super::{App, Mode};
 use crate::keymap::{self, Action};
 
@@ -15,6 +16,11 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         && session.prompt().is_some()
     {
         return prompt::handle_key(app, key);
+    }
+    if let Mode::Explore(session) = &app.mode
+        && session.search_is_open()
+    {
+        return search::handle_key(app, key);
     }
     let Some(action) = keymap::action_for(&key) else {
         return vec![];
@@ -35,6 +41,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::GoTo => session.open_prompt(PromptKind::GoTo),
         Action::Export => session.open_prompt(PromptKind::Export),
         Action::CycleView => session.cycle_view(),
+        Action::Search => session.open_search(),
         Action::Random => {}
         Action::StartOver => app.start_over(),
         Action::ScrollDown => session.scroll_by(1),

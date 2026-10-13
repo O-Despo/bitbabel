@@ -4,6 +4,7 @@ use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
 use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
+use super::search::SearchForm;
 use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
@@ -28,6 +29,10 @@ pub struct Session {
     status: Option<Status>,
     /// A one-line prompt that is open over the page, if any.
     prompt: Option<Prompt>,
+    /// The search form. It keeps its results when the overlay is closed.
+    search: Option<SearchForm>,
+    /// Whether the search overlay is showing.
+    search_open: bool,
 }
 
 /// A message for the status line.
@@ -61,6 +66,8 @@ impl Session {
             history: History::new(first),
             status: None,
             prompt: None,
+            search: None,
+            search_open: false,
         };
         session.refresh_lines();
         Ok(session)
@@ -104,6 +111,31 @@ impl Session {
 
     pub(super) fn prompt_mut(&mut self) -> Option<&mut Prompt> {
         self.prompt.as_mut()
+    }
+
+    /// The search form, if it has been opened.
+    pub fn search_form(&self) -> Option<&SearchForm> {
+        self.search.as_ref()
+    }
+
+    pub(super) fn search_form_mut(&mut self) -> Option<&mut SearchForm> {
+        self.search.as_mut()
+    }
+
+    /// Whether the search overlay is showing. It gets every key while it is.
+    pub fn search_is_open(&self) -> bool {
+        self.search_open
+    }
+
+    /// Opens the search overlay, with the last needle and results if there were any.
+    pub fn open_search(&mut self) {
+        self.search.get_or_insert_with(SearchForm::default);
+        self.search_open = true;
+    }
+
+    /// Closes the search overlay. The needle and results are kept.
+    pub fn close_search(&mut self) {
+        self.search_open = false;
     }
 
     /// Opens a prompt. It gets every key until it is closed.

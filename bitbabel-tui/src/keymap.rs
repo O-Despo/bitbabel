@@ -15,6 +15,7 @@ pub enum Action {
     HistoryForward,
     Random,
     GoTo,
+    Search,
     Export,
     CycleView,
     Quit,
@@ -72,9 +73,10 @@ const BINDINGS: &[Binding] = &[
     bind(Pattern::Code(KeyCode::Right), Action::HistoryForward, None),
     bind(Pattern::Char('r'), Action::Random, Some("r random")),
     bind(Pattern::Char('g'), Action::GoTo, Some("g go to")),
+    bind(Pattern::Char('/'), Action::Search, Some("/ search")),
     bind(Pattern::Char('x'), Action::Export, None),
     bind(Pattern::Char('e'), Action::CycleView, Some("e view")),
-    bind(Pattern::Char('s'), Action::StartOver, Some("s start")),
+    bind(Pattern::Char('s'), Action::StartOver, None),
     bind(Pattern::Char('q'), Action::Quit, Some("q quit")),
     bind(Pattern::Ctrl('c'), Action::Quit, None),
 ];
@@ -129,6 +131,7 @@ mod test {
         assert_eq!(plain('r'), Some(Action::Random));
         assert_eq!(plain('x'), Some(Action::Export));
         assert_eq!(plain('g'), Some(Action::GoTo));
+        assert_eq!(plain('/'), Some(Action::Search));
         assert_eq!(
             action_for(&key(KeyCode::Left, KeyModifiers::NONE)),
             Some(Action::HistoryBack)
@@ -210,7 +213,7 @@ mod test {
         let hints = hints();
         assert_eq!(
             hints,
-            "h/l page  j/k scroll  ←/→ history  r random  g go to  e view  s start  q quit"
+            "h/l page  j/k scroll  ←/→ history  r random  g go to  / search  e view  q quit"
         );
         assert!(hints.chars().count() <= 78);
     }

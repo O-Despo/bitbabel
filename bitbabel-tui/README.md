@@ -64,6 +64,7 @@ and volume), then the page itself with the offset of each line on the left.
 | `Home` `End` | Top and bottom of the page |
 | `←` `→` | Back and forward through the pages you visited, like a browser (the last 100) |
 | `g` | Go to the index in a file. Hex or base64 is picked by length, and whitespace is ignored |
+| `/` | Search. Type the needle in the current view's encoding (see below) |
 | `r` | A random page. It is not repeatable, so keep a find by its index |
 | `e` | Show the page as text, hex, base64 or utf8 |
 | `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |
@@ -78,6 +79,25 @@ one character from a fixed table, and 107 of those 256 characters (`é ß α Σ 
 are "ambiguous width". Some terminals, such as ones set to a CJK locale, draw those two cells
 wide, which pushes the right border and the highlight out of line. The table can't change, but
 hex and base64 are plain ASCII and always line up.
+
+## Search
+
+`/` opens a search box. Search builds pages that contain your text and shows the first ten,
+each with the page's index and where the text sits in it. The needle is typed in the encoding
+of the view you are in, so what you type matches what you see:
+
+| View | You type | Meaning |
+|---|---|---|
+| text | `hello` | each character is one byte, from the BitBabel text table |
+| utf8 | `héllo` | the UTF-8 bytes of the text |
+| hex | `68656c6c6f` | two digits per byte, an even number of them |
+| base64 | `aGVsbG8=` | padded base64 |
+
+The box title names the view and shows the needle's size in bytes. A page holds 16, 3200 or
+6400 bytes, so a needle can be at most that long. Problems such as a character the text table
+does not have, or an odd number of hex digits, are shown in the box and never close it. Each
+search uses a new random seed. Press `Esc` to close the box; the needle and results are kept
+for the next `/`.
 
 ## Which library am I in?
 
