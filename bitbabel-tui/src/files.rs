@@ -1,7 +1,7 @@
 //! File access, handed to the app so tests need no disk.
 
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 /// The file operations a key press may need the answer to at once.
@@ -12,6 +12,13 @@ pub trait Files: Send + Sync {
     ///
     /// Any IO error, or [`io::ErrorKind::FileTooLarge`] if the file is longer than `max_len`.
     fn read(&self, path: &Path, max_len: usize) -> io::Result<Vec<u8>>;
+
+    /// Creates a new file holding `bytes`. An existing file is never touched.
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::AlreadyExists`] if `path` exists, or any other IO error.
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
 }
 
 /// The real file system.
@@ -34,6 +41,13 @@ impl Files for StdFiles {
         }
         Ok(bytes)
     }
+
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        // `create_new` checks and creates in one step, so nothing can appear in between.
+        let mut file = File::create_new(path)?;
+        file.write_all(bytes)?;
+        file.sync_all()
+    }
 }
 
 /// A file system in memory, for tests.
@@ -45,6 +59,11 @@ pub struct MemFiles {
 
 #[cfg(test)]
 impl MemFiles {
+    /// The bytes at `path`, if there is a file.
+    pub fn get(&self, path: &str) -> Option<Vec<u8>> {
+        self.files.lock().unwrap().get(Path::new(path)).cloned()
+    }
+
     /// The same files with one more at `path`.
     pub fn with(self, path: &str, bytes: &[u8]) -> Self {
         self.files
@@ -69,6 +88,15 @@ impl Files for MemFiles {
             ));
         }
         Ok(bytes.clone())
+    }
+
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut files = self.files.lock().unwrap();
+        if files.contains_key(path) {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "File exists"));
+        }
+        files.insert(path.to_path_buf(), bytes.to_vec());
+        Ok(())
     }
 }
 
@@ -112,6 +140,25 @@ mod test {
         let dir = TempDir::new("read-missing");
         let error = StdFiles.read(&dir.0.join("nope"), 32).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn std_files_write_new_never_overwrites() {
+        let dir = TempDir::new("write-new");
+        let path = dir.0.join("index.txt");
+        StdFiles.write_new(&path, b"first").unwrap();
+        let error = StdFiles.write_new(&path, b"second").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).unwrap(), b"first");
+    }
+
+    #[test]
+    fn mem_files_write_new_never_overwrites() {
+        let files = MemFiles::default();
+        files.write_new(Path::new("a"), b"first").unwrap();
+        let error = files.write_new(Path::new("a"), b"second").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(files.get("a").unwrap(), b"first");
     }
 
     #[test]
