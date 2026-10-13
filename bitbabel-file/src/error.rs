@@ -348,7 +348,7 @@ pub enum LineError {
     FieldCount { found: usize },
     /// The time is not the plain digits of a `u64`.
     Time(String),
-    /// The label has a control character, or one that reorders text.
+    /// The label has a control character, or one that is not drawn or reorders text.
     InvalidLabel(char),
     /// The label has more than `max` characters.
     LabelTooLong { len: usize, max: usize },
@@ -376,7 +376,7 @@ impl fmt::Display for LineError {
             }
             LineError::InvalidLabel(c) => write!(
                 f,
-                "label contains a control or text-reordering character U+{:04X}",
+                "label contains a control, hidden or text-reordering character U+{:04X}",
                 u32::from(*c)
             ),
             LineError::LabelTooLong { len, max } => {

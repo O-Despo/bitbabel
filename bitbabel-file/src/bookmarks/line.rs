@@ -14,15 +14,25 @@ use crate::error::LineError;
 /// The most characters a label may have.
 pub const MAX_LABEL_CHARS: usize = 200;
 
-/// Characters that change how text is ordered or broken, without being drawn. A label with one
-/// of these can make a line in a list read differently from what it holds.
-const BIDI_AND_SEPARATORS: [char; 14] = [
-    '\u{200e}', '\u{200f}', // left-to-right and right-to-left marks
-    '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}', // embeddings and overrides
-    '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}', // isolates
-    '\u{2028}', '\u{2029}', // line and paragraph separators
-    '\u{061c}', // Arabic letter mark
-];
+/// Characters that are not drawn, or that change how text is ordered or broken. A label with
+/// one of these can read differently from what it holds. A zero-width joiner (U+200D) is
+/// allowed because emoji need it.
+fn is_hidden(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00ad}' // soft hyphen
+        | '\u{061c}' // Arabic letter mark
+        | '\u{180e}' // Mongolian vowel separator
+        | '\u{200b}' // zero-width space
+        | '\u{200e}'..='\u{200f}' // left-to-right and right-to-left marks
+        | '\u{2028}'..='\u{202e}' // separators, embeddings and overrides
+        | '\u{2060}'..='\u{2064}' // word joiner and invisible operators
+        | '\u{2066}'..='\u{2069}' // isolates
+        | '\u{feff}' // zero-width no-break space
+        | '\u{fff9}'..='\u{fffb}' // interlinear annotation
+        | '\u{e0000}'..='\u{e007f}' // tag characters, which can smuggle invisible text
+    )
+}
 
 /// A saved page: when it was saved, what it is called, and where it is.
 ///
@@ -54,7 +64,7 @@ impl Bookmark {
     /// # Errors
     ///
     /// - [`LineError::InvalidLabel`] if the label has a control character (tab, newline,
-    ///   escape and the rest), or one that reorders text.
+    ///   escape and the rest), or one that is not drawn or that reorders text.
     /// - [`LineError::LabelTooLong`] for more than [`MAX_LABEL_CHARS`] characters.
     pub fn new(time: u64, label: impl Into<String>, index: PageIndex) -> Result<Self, LineError> {
         let label = label.into();
@@ -123,10 +133,7 @@ impl Bookmark {
 }
 
 fn check_label(label: &str) -> Result<(), LineError> {
-    if let Some(found) = label
-        .chars()
-        .find(|c| c.is_control() || BIDI_AND_SEPARATORS.contains(c))
-    {
+    if let Some(found) = label.chars().find(|&c| c.is_control() || is_hidden(c)) {
         return Err(LineError::InvalidLabel(found));
     }
     let len = label.chars().count();
@@ -220,10 +227,27 @@ mod test {
     }
 
     #[test]
-    fn labels_may_not_hold_control_or_reordering_characters() {
+    fn labels_may_not_hold_control_hidden_or_reordering_characters() {
         for bad in [
-            '\t', '\n', '\r', '\u{1b}', '\0', '\u{7f}', '\u{85}', // control
-            '\u{202e}', '\u{2066}', '\u{200f}', '\u{2028}', '\u{061c}',
+            '\t',
+            '\n',
+            '\r',
+            '\u{1b}',
+            '\0',
+            '\u{7f}',
+            '\u{85}', // control
+            '\u{202e}',
+            '\u{2066}',
+            '\u{200f}',
+            '\u{2028}',
+            '\u{061c}', // reordering
+            '\u{00ad}',
+            '\u{200b}',
+            '\u{2060}',
+            '\u{feff}',
+            '\u{fffa}', // not drawn
+            '\u{e0041}',
+            '\u{e007f}', // tag characters
         ] {
             let label = format!("a{bad}b");
             assert_eq!(
@@ -232,8 +256,16 @@ mod test {
                 "{bad:?}"
             );
         }
-        // Ordinary non-ASCII text, and a zero-width joiner in an emoji, stay allowed.
-        assert!(Bookmark::new(1, "日本語 é 👨\u{200d}👩", index()).is_ok());
+        // Ordinary non-ASCII text, a zero-width joiner in an emoji, and the characters just
+        // outside each rejected range stay allowed.
+        for ok in [
+            "日本語 é 👨\u{200d}👩",
+            "a\u{2027}b",
+            "a\u{202f}b",
+            "a\u{e0080}b",
+        ] {
+            assert!(Bookmark::new(1, ok, index()).is_ok(), "{ok:?}");
+        }
     }
 
     #[test]
@@ -299,7 +331,7 @@ mod test {
     fn error_messages_are_readable() {
         assert_eq!(
             LineError::InvalidLabel('\u{1b}').to_string(),
-            "label contains a control or text-reordering character U+001B"
+            "label contains a control, hidden or text-reordering character U+001B"
         );
         assert_eq!(
             LineError::FieldCount { found: 2 }.to_string(),
