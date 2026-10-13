@@ -758,4 +758,40 @@ mod test {
         let error = form_of(&app).error().unwrap().to_string();
         assert!(error.contains("not in the BitBabel text table"), "{error}");
     }
+
+    #[test]
+    fn counting_random_starts_at_one_on_every_test_thread() {
+        let mut first = [0u8; 2];
+        counting_random(&mut first).unwrap();
+        assert_eq!(first, [1, 1]);
+        let mut second = [0u8; 2];
+        counting_random(&mut second).unwrap();
+        assert_eq!(second, [2, 2]);
+    }
+
+    #[test]
+    fn arrows_on_an_empty_result_list_stay_on_row_zero() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Up));
+        app.handle_key(press(KeyCode::Down));
+        assert_eq!(form_of(&app).selected(), 0);
+    }
+
+    #[test]
+    fn a_character_typed_with_altgr_goes_into_the_needle() {
+        let mut app = searching("");
+        // Windows reports AltGr as Ctrl+Alt, and `@` on many layouts is AltGr+Q.
+        let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+        app.handle_key(KeyEvent::new(KeyCode::Char('@'), altgr));
+        assert_eq!(form_of(&app).input(), "@");
+    }
+
+    #[test]
+    fn ctrl_or_alt_alone_never_types_into_the_needle() {
+        let mut app = searching("");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        assert_eq!(form_of(&app).input(), "");
+    }
 }

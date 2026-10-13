@@ -19,11 +19,18 @@ pub fn failing_random(_: &mut [u8]) -> Result<(), RandomError> {
     Err(RandomError::new("blocked"))
 }
 
-/// Fills each call with a different byte, to tell two seeds apart.
+/// Fills each call with a different byte, to tell two seeds apart. The counter is per
+/// thread, and every test runs on its own thread, so it always starts at 1 and tests cannot
+/// disturb each other.
 pub fn counting_random(buf: &mut [u8]) -> Result<(), RandomError> {
-    use std::sync::atomic::{AtomicU8, Ordering};
-    static NEXT: AtomicU8 = AtomicU8::new(1);
-    buf.fill(NEXT.fetch_add(1, Ordering::Relaxed));
+    use std::cell::Cell;
+    thread_local! {
+        static NEXT: Cell<u8> = const { Cell::new(1) };
+    }
+    NEXT.with(|next| {
+        buf.fill(next.get());
+        next.set(next.get().wrapping_add(1));
+    });
     Ok(())
 }
 
