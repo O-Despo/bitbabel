@@ -77,3 +77,92 @@ fn random_page(app: &mut App) {
         Err(error) => session.set_error(error.to_string()),
     }
 }
+
+#[cfg(test)]
+mod test {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::*;
+    use crate::app::test_util::*;
+    use crate::config::TuiConfig;
+    use crate::files::MemFiles;
+    use bitbabel_core::LibraryConfig;
+
+    #[test]
+    fn j_and_k_scroll_one_line_and_stop_at_the_top() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(scroll_of(&app), 0);
+        app.handle_key(press(KeyCode::Char('j')));
+        app.handle_key(press(KeyCode::Char('j')));
+        assert_eq!(scroll_of(&app), 2);
+        app.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(scroll_of(&app), 1);
+    }
+
+    #[test]
+    fn home_end_and_ctrl_d_u_move_the_scroll() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::End));
+        assert_eq!(scroll_of(&app), 50 - 18);
+        app.handle_key(press(KeyCode::Home));
+        assert_eq!(scroll_of(&app), 0);
+        let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+        app.handle_key(ctrl('d'));
+        assert_eq!(scroll_of(&app), 9);
+        app.handle_key(ctrl('u'));
+        assert_eq!(scroll_of(&app), 0);
+    }
+
+    #[test]
+    fn left_and_right_walk_back_and_forward_through_the_visits() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('l')));
+        let third = index_of(&app);
+        assert_ne!(third, start);
+
+        app.handle_key(press(KeyCode::Left));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Right));
+        app.handle_key(press(KeyCode::Right));
+        assert_eq!(index_of(&app), third);
+    }
+
+    #[test]
+    fn r_visits_the_index_made_of_the_random_bytes() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('r')));
+        // The fake source fills every byte with 0xAB.
+        assert_eq!(
+            index_of(&app),
+            bitbabel_core::PageIndex::from_bytes(vec![0xAB; 3200])
+        );
+    }
+
+    #[test]
+    fn a_random_page_is_a_visit_so_back_returns() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('r')));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+    }
+
+    #[test]
+    fn a_failing_random_source_leaves_the_page_and_says_why() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_eq!(index_of(&app), start);
+        let status = status_of(&app).unwrap();
+        assert!(status.error);
+        assert_eq!(status.text, "cannot get random bytes from the OS: blocked");
+    }
+}

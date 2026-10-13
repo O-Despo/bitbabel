@@ -252,9 +252,13 @@ pub(super) fn run_search(session: &mut Session, random: RandomFn) {
 #[cfg(test)]
 mod test {
     use bitbabel_core::LibraryConfig;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
     use crate::app::library::LibraryChoice;
+    use crate::app::test_util::*;
+    use crate::config::TuiConfig;
+    use crate::files::MemFiles;
 
     #[test]
     fn a_result_that_cannot_be_opened_is_an_error_on_the_status_line() {
@@ -301,5 +305,457 @@ mod test {
         assert!(session.prompt().is_some());
         session.close_prompt();
         assert!(session.prompt().is_none());
+    }
+
+    fn form_of(app: &App) -> SearchForm {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session
+            .search_form()
+            .expect("the search form should exist")
+            .clone()
+    }
+
+    fn search_open(app: &App) -> bool {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.search_is_open()
+    }
+
+    /// A small-library app with the search overlay open and `needle` typed.
+    fn searching(needle: &str) -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, needle);
+        app
+    }
+
+    #[test]
+    fn slash_opens_the_search_overlay_and_esc_closes_it() {
+        let mut app = medium_app();
+        assert!(!search_open(&app));
+        app.handle_key(press(KeyCode::Char('/')));
+        assert!(search_open(&app));
+        app.handle_key(press(KeyCode::Esc));
+        assert!(!search_open(&app));
+    }
+
+    #[test]
+    fn typing_in_the_search_box_never_runs_a_command() {
+        let mut app = searching("");
+        let start = index_of(&app);
+        // `l`, `r` and `q` are commands outside the box.
+        type_text(&mut app, "lrq");
+        assert_eq!(form_of(&app).input(), "lrq");
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(form_of(&app).input(), "lr");
+    }
+
+    #[test]
+    fn enter_lists_ten_pages_that_each_hold_the_needle_where_it_says() {
+        let mut app = searching("hello");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert_eq!(form.error(), None);
+        assert_eq!(form.hits().len(), 10);
+        assert!(form.is_fresh(View::Text));
+
+        let library = bitbabel_core::BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
+        for hit in form.hits() {
+            let page = library.page_at(hit.index()).unwrap();
+            let at = hit.start();
+            assert_eq!(&page.bytes()[at..at + 5], b"hello");
+        }
+    }
+
+    #[test]
+    fn the_same_seed_and_needle_give_the_same_results() {
+        let mut first = searching("hi");
+        first.handle_key(press(KeyCode::Enter));
+        let mut second = searching("hi");
+        second.handle_key(press(KeyCode::Enter));
+        assert_eq!(form_of(&first).hits(), form_of(&second).hits());
+    }
+
+    #[test]
+    fn a_bad_needle_is_an_inline_error_and_keeps_typing_possible() {
+        let mut app = searching("a中");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert!(
+            form.error()
+                .unwrap()
+                .contains("not in the BitBabel text table")
+        );
+        assert!(form.hits().is_empty());
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(form_of(&app).error(), None);
+    }
+
+    #[test]
+    fn a_needle_longer_than_a_page_names_the_limit() {
+        let mut app = searching(&"a".repeat(17));
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(
+            form_of(&app).error(),
+            Some("needle is 17 bytes but a page is only 16")
+        );
+    }
+
+    #[test]
+    fn an_empty_needle_asks_for_something_to_search_for() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(form_of(&app).error(), Some("type something to search for"));
+    }
+
+    #[test]
+    fn a_failing_random_source_is_an_error_and_no_search_happens() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "hi");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert!(form.hits().is_empty());
+        assert_eq!(
+            form.error(),
+            Some("cannot get random bytes from the OS: blocked")
+        );
+    }
+
+    #[test]
+    fn editing_the_needle_makes_the_results_stale_and_arrows_pick_a_row() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Down));
+        assert_eq!(form_of(&app).selected(), 2);
+        app.handle_key(press(KeyCode::Up));
+        assert_eq!(form_of(&app).selected(), 1);
+
+        type_text(&mut app, "x");
+        assert!(!form_of(&app).is_fresh(View::Text));
+        // The old results are still there to look at.
+        assert_eq!(form_of(&app).hits().len(), 10);
+    }
+
+    #[test]
+    fn the_overlay_keeps_its_needle_and_results_when_closed_and_reopened() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('/')));
+        assert_eq!(form_of(&app).input(), "hi");
+        assert_eq!(form_of(&app).hits().len(), 10);
+    }
+
+    #[test]
+    fn the_needle_is_read_in_the_current_view() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('e'))); // hex
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "6869");
+        app.handle_key(press(KeyCode::Enter));
+        let form = form_of(&app);
+        assert_eq!(form.error(), None);
+        let library = bitbabel_core::BabelLibrary::canonical(LibraryConfig::SMALL).unwrap();
+        let page = library.page_at(form.hits()[0].index()).unwrap();
+        let at = form.hits()[0].start();
+        assert_eq!(&page.bytes()[at..at + 2], b"hi");
+    }
+
+    fn highlight_of(app: &App) -> Option<std::ops::Range<usize>> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.highlight().cloned()
+    }
+
+    #[test]
+    fn enter_on_fresh_results_opens_the_picked_one_with_the_needle_marked() {
+        let mut app = searching("hello");
+        app.handle_key(press(KeyCode::Enter)); // search
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Down));
+        let hit = form_of(&app).hits()[2].clone();
+
+        app.handle_key(press(KeyCode::Enter)); // open row 3
+        assert_eq!(index_of(&app), *hit.index());
+        assert_eq!(highlight_of(&app), Some(hit.range()));
+        assert!(!search_open(&app));
+    }
+
+    #[test]
+    fn the_marked_text_is_the_needle() {
+        let mut app = searching("hello");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        let marked: String = session
+            .lines()
+            .iter()
+            .flat_map(|line| &line.segments)
+            .filter(|segment| segment.highlighted)
+            .map(|segment| segment.text.as_str())
+            .collect();
+        assert_eq!(marked, "hello");
+    }
+
+    #[test]
+    fn an_opened_result_is_a_visit_so_back_returns() {
+        let mut app = searching("hi");
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        assert_ne!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+        assert_eq!(highlight_of(&app), None);
+    }
+
+    #[test]
+    fn the_mark_stays_through_a_view_change_and_scrolling_but_not_a_page_change() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        let marked = highlight_of(&app);
+        assert!(marked.is_some());
+
+        app.handle_key(press(KeyCode::Char('e')));
+        app.handle_key(press(KeyCode::Char('j')));
+        assert_eq!(highlight_of(&app), marked);
+
+        app.handle_key(press(KeyCode::Char('l')));
+        assert_eq!(highlight_of(&app), None);
+    }
+
+    #[test]
+    fn opening_a_result_scrolls_to_the_match() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::MEDIUM),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "needle");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        // Try every result: the marked line must be on screen for each.
+        for pick in 0..10 {
+            app.handle_key(press(KeyCode::Char('/')));
+            // The picked row is kept between openings, so go to the top first.
+            for _ in 0..10 {
+                app.handle_key(press(KeyCode::Up));
+            }
+            for _ in 0..pick {
+                app.handle_key(press(KeyCode::Down));
+            }
+            app.handle_key(press(KeyCode::Enter));
+            let Mode::Explore(session) = app.mode() else {
+                panic!("should be exploring");
+            };
+            let visible = session
+                .lines()
+                .iter()
+                .skip(session.scroll())
+                .take(session.viewport());
+            let any_marked = visible
+                .flat_map(|line| &line.segments)
+                .any(|segment| segment.highlighted);
+            assert!(any_marked, "result {pick} is not on screen");
+        }
+    }
+
+    #[test]
+    fn enter_on_stale_results_searches_again_instead_of_opening() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        type_text(&mut app, "s"); // "his" is a new needle
+        app.handle_key(press(KeyCode::Enter));
+        assert!(search_open(&app));
+        assert!(form_of(&app).is_fresh(View::Text));
+        assert_eq!(form_of(&app).hits().len(), 10);
+    }
+
+    /// Searches for `needle` on a small library, closes the overlay and returns the app.
+    fn with_results(needle: &str) -> App {
+        let mut app = searching(needle);
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        app
+    }
+
+    fn hit_index(app: &App, at: usize) -> bitbabel_core::PageIndex {
+        form_of(app).hits()[at].index().clone()
+    }
+
+    #[test]
+    fn n_opens_the_first_result_then_the_next_ones() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 0));
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 1));
+        assert_eq!(status_of(&app).unwrap().text, "search result 2/10");
+    }
+
+    #[test]
+    fn capital_n_steps_back_and_both_wrap() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('N'))); // from nothing: the last
+        assert_eq!(index_of(&app), hit_index(&app, 9));
+        app.handle_key(press(KeyCode::Char('n'))); // wraps to the first
+        assert_eq!(index_of(&app), hit_index(&app, 0));
+        app.handle_key(press(KeyCode::Char('N'))); // wraps back to the last
+        assert_eq!(index_of(&app), hit_index(&app, 9));
+    }
+
+    #[test]
+    fn n_counts_from_the_last_result_opened_even_after_wandering() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('r'))); // wander off to a random page
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 2));
+    }
+
+    #[test]
+    fn a_result_opened_with_n_is_marked_and_is_a_visit() {
+        let mut app = with_results("hi");
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(highlight_of(&app), Some(form_of(&app).hits()[0].range()));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+    }
+
+    #[test]
+    fn opening_from_the_overlay_starts_n_from_that_row() {
+        let mut app = searching("hi");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Down));
+        app.handle_key(press(KeyCode::Enter)); // opens row 3
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 3));
+    }
+
+    #[test]
+    fn a_new_search_replaces_the_set_and_starts_n_over() {
+        let mut app = with_results("hi");
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('n')));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "x");
+        app.handle_key(press(KeyCode::Enter)); // searches "hix"
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), hit_index(&app, 0));
+    }
+
+    #[test]
+    fn n_with_no_results_says_to_search() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('n')));
+        assert_eq!(index_of(&app), start);
+        assert_eq!(
+            status_of(&app).unwrap().text,
+            "no search results, press / to search"
+        );
+    }
+
+    #[test]
+    fn ctrl_r_gives_a_new_set_for_the_same_needle() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, counting_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "hi");
+        app.handle_key(press(KeyCode::Enter));
+        let first = form_of(&app).hits().to_vec();
+
+        app.handle_key(press(KeyCode::Down));
+        let ctrl_r = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_r);
+        let form = form_of(&app);
+        assert_eq!(form.input(), "hi");
+        assert_eq!(form.hits().len(), 10);
+        assert_ne!(form.hits(), first.as_slice());
+        // A new set starts at the top again.
+        assert_eq!(form.selected(), 0);
+        assert!(search_open(&app));
+    }
+
+    #[test]
+    fn ctrl_r_with_a_bad_needle_is_an_inline_error() {
+        let mut app = searching("a中");
+        let ctrl_r = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_r);
+        assert!(
+            form_of(&app)
+                .error()
+                .unwrap()
+                .contains("not in the BitBabel text table")
+        );
+    }
+
+    #[test]
+    fn plain_r_in_the_box_is_a_letter_not_a_new_set() {
+        let mut app = searching("");
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_eq!(form_of(&app).input(), "r");
+    }
+
+    #[test]
+    fn results_are_stale_after_the_view_changes_even_with_the_same_text() {
+        let mut app = searching("6869");
+        app.handle_key(press(KeyCode::Enter));
+        assert!(form_of(&app).is_fresh(View::Text));
+        let before = form_of(&app).hits().to_vec();
+
+        // The same text in the hex view is two bytes, `hi`, not four characters.
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('e')));
+        app.handle_key(press(KeyCode::Char('/')));
+        assert!(!form_of(&app).is_fresh(View::Hex));
+
+        // So Enter searches again instead of opening a result of the old needle.
+        app.handle_key(press(KeyCode::Enter));
+        assert!(search_open(&app));
+        assert!(form_of(&app).is_fresh(View::Hex));
+        assert_ne!(form_of(&app).hits(), before.as_slice());
+    }
+
+    #[test]
+    fn a_bad_needle_is_reported_even_when_the_random_source_fails() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "a中");
+        app.handle_key(press(KeyCode::Enter));
+        let error = form_of(&app).error().unwrap().to_string();
+        assert!(error.contains("not in the BitBabel text table"), "{error}");
     }
 }

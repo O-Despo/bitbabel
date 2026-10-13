@@ -203,7 +203,12 @@ fn export(session: &mut Session, files: &dyn Files) {
 
 #[cfg(test)]
 mod test {
+    use bitbabel_core::LibraryConfig;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
     use super::*;
+    use crate::app::test_util::*;
+    use crate::config::TuiConfig;
     use crate::files::MemFiles;
 
     fn index(len: usize) -> PageIndex {
@@ -302,5 +307,182 @@ mod test {
             read_index(&none, "nope", 16),
             Err("cannot read nope: No such file or directory".to_string())
         );
+    }
+
+    fn prompt_of(app: &App) -> Option<&Prompt> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt()
+    }
+
+    #[test]
+    fn x_opens_the_export_prompt_and_esc_closes_it() {
+        let mut app = medium_app();
+        assert!(prompt_of(&app).is_none());
+        app.handle_key(press(KeyCode::Char('x')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "export index");
+        app.handle_key(press(KeyCode::Esc));
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn typing_into_a_prompt_never_runs_a_command() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('x')));
+        // `l` would step a page and `q` would quit if the prompt did not take them.
+        type_text(&mut app, "lq.txt");
+        assert_eq!(prompt_of(&app).unwrap().input(), "lq.txt");
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(prompt_of(&app).unwrap().input(), "lq.tx");
+    }
+
+    #[test]
+    fn ctrl_c_still_quits_with_a_prompt_open() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('x')));
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(app.handle_key(ctrl_c), [Effect::Quit]);
+    }
+
+    /// An app on `files`, small size, with the export prompt open and `name` typed.
+    fn export_to(files: MemFiles, name: &str) -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(files));
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, name);
+        app
+    }
+
+    #[test]
+    fn export_writes_the_index_as_base64_and_a_newline() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        // Share the fake with the app so the test can look inside it afterwards.
+        struct Shared(std::sync::Arc<MemFiles>);
+        impl Files for Shared {
+            fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
+                self.0.read(path, max)
+            }
+            fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+                self.0.write_new(path, bytes)
+            }
+        }
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(Shared(files.clone())));
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, "idx.txt");
+        app.handle_key(press(KeyCode::Enter));
+
+        let expected = format!("{}\n", index_of(&app).to_base64());
+        assert_eq!(files.get("idx.txt").unwrap(), expected.as_bytes());
+        assert!(prompt_of(&app).is_none());
+        assert_eq!(status_of(&app).unwrap().text, "index written to idx.txt");
+    }
+
+    #[test]
+    fn export_refuses_an_existing_file_and_keeps_the_prompt_open() {
+        let files = MemFiles::default().with("taken.txt", b"keep me");
+        let mut app = export_to(files, "taken.txt");
+        app.handle_key(press(KeyCode::Enter));
+        let prompt = prompt_of(&app).unwrap();
+        assert_eq!(
+            prompt.error(),
+            Some("taken.txt already exists, choose another name")
+        );
+        // The name is still there to edit, and typing clears the error.
+        assert_eq!(prompt.input(), "taken.txt");
+        app.handle_key(press(KeyCode::Char('2')));
+        assert_eq!(prompt_of(&app).unwrap().error(), None);
+    }
+
+    #[test]
+    fn export_with_no_name_says_so() {
+        let mut app = export_to(MemFiles::default(), "  ");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(prompt_of(&app).unwrap().error(), Some("type a file name"));
+    }
+
+    #[test]
+    fn g_visits_the_index_that_x_exported() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::MEDIUM),
+                key: None,
+            },
+            fake_random,
+            Box::new(SharedFiles(files)),
+        );
+        app.handle_key(press(KeyCode::Char('l')));
+        let saved = index_of(&app);
+
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, "here.txt");
+        app.handle_key(press(KeyCode::Enter));
+
+        app.handle_key(press(KeyCode::Char('r')));
+        assert_ne!(index_of(&app), saved);
+
+        app.handle_key(press(KeyCode::Char('g')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "go to");
+        type_text(&mut app, "here.txt");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(index_of(&app), saved);
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn g_with_a_bad_file_keeps_the_prompt_open_and_the_page() {
+        let files = MemFiles::default().with("short.txt", b"abc");
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(files),
+        );
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('g')));
+        type_text(&mut app, "short.txt");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(index_of(&app), start);
+        assert_eq!(
+            prompt_of(&app).unwrap().error(),
+            Some("3 chars: not 32 (hex) or 24 (base64, with its = padding)")
+        );
+        app.handle_key(press(KeyCode::Esc));
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn a_went_to_page_is_a_visit_so_back_returns() {
+        let mut want = bitbabel_core::PageIndex::zero(16).to_string();
+        want.replace_range(31.., "7");
+        let files = MemFiles::default().with("seven.txt", want.as_bytes());
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(files),
+        );
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('g')));
+        type_text(&mut app, "seven.txt");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(index_of(&app), bitbabel_core::PageIndex::from_u64(7, 16));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
     }
 }
