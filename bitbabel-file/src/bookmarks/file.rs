@@ -338,6 +338,22 @@ mod test {
         );
     }
 
+    /// `max_bytes` assumes a header of at most `MAX_HEADER_BYTES`. Check it against the longest
+    /// real ones, so a longer field cannot make the bound too small without a test failing.
+    #[test]
+    fn every_header_fits_in_the_header_bound() {
+        for size in [
+            LibraryConfig::SMALL,
+            LibraryConfig::MEDIUM,
+            LibraryConfig::LARGE,
+        ] {
+            for key in [BookmarkKey::Canonical, BookmarkKey::Custom([0xff; 8])] {
+                let header = BookmarkSettings::new(size, key).unwrap().header();
+                assert!(header.len() <= MAX_HEADER_BYTES, "{header:?}");
+            }
+        }
+    }
+
     #[test]
     fn a_full_file_fits_in_max_bytes() {
         let mut file = BookmarkFile::new(settings());
