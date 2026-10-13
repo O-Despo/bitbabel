@@ -6,7 +6,7 @@ use bitbabel_core::PageIndex;
 
 use crate::bookmarks::header::BookmarkSettings;
 use crate::bookmarks::line::{Bookmark, MAX_LABEL_CHARS};
-use crate::error::BookmarkError;
+use crate::error::{BookmarkError, LineError};
 
 /// The most bookmarks one file may hold. Every change rewrites the whole file, so this keeps
 /// a write to a few tens of megabytes at most.
@@ -152,7 +152,9 @@ impl BookmarkFile {
     ///
     /// - The header errors of [`BookmarkSettings::from_header`].
     /// - [`BookmarkError::MissingFinalNewline`] if the last line has no `\n`.
-    /// - [`BookmarkError::Line`] for a bad line, with its number.
+    /// - [`BookmarkError::WindowsLineEndings`] for a line that ends in `\r`, in the header or
+    ///   after it.
+    /// - [`BookmarkError::Line`] for any other bad line, with its number.
     /// - [`BookmarkError::DuplicateIndex`] for an index that appears twice.
     /// - [`BookmarkError::TooManyBookmarks`] for more than [`MAX_BOOKMARKS`] lines.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BookmarkError> {
@@ -169,9 +171,13 @@ impl BookmarkFile {
                     return Err(BookmarkError::TooManyBookmarks { max: MAX_BOOKMARKS });
                 }
                 let bookmark =
-                    Bookmark::from_line(text, page_len).map_err(|error| BookmarkError::Line {
-                        line: line_of(position),
-                        error,
+                    Bookmark::from_line(text, page_len).map_err(|error| match error {
+                        // The same error as in the header, so a caller shows one hint.
+                        LineError::WindowsLineEndings => BookmarkError::WindowsLineEndings,
+                        error => BookmarkError::Line {
+                            line: line_of(position),
+                            error,
+                        },
                     })?;
                 file.bookmarks.push(bookmark);
             }
@@ -206,7 +212,6 @@ mod test {
 
     use super::*;
     use crate::bookmarks::header::BookmarkKey;
-    use crate::error::LineError;
 
     const PAGE_LEN: usize = 16;
 
@@ -471,15 +476,12 @@ mod test {
             Err(BookmarkError::WindowsLineEndings)
         );
 
-        // A bookmark line (not the header) with the `\r`: the same message by line.
+        // Only a bookmark line with the `\r`, and a good header: the same error.
         let mut bytes = GOLDEN.as_bytes()[..GOLDEN.len() - 1].to_vec();
         bytes.extend_from_slice(b"\r\n");
         assert_eq!(
             BookmarkFile::from_bytes(&bytes),
-            Err(BookmarkError::Line {
-                line: 4,
-                error: LineError::WindowsLineEndings
-            })
+            Err(BookmarkError::WindowsLineEndings)
         );
     }
 
