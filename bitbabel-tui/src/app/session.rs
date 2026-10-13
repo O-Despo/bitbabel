@@ -7,6 +7,7 @@ use bitbabel_core::{Cursor, LibraryError, PageIndex};
 use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
 use super::search::SearchForm;
+use super::viewport::Viewport;
 use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
@@ -22,10 +23,8 @@ pub struct Session {
     /// The page as display lines. Made again whenever the page or the view changes, and
     /// only then.
     lines: Vec<DisplayLine>,
-    /// The first visible line.
-    scroll: usize,
-    /// How many page lines fit on screen.
-    viewport: usize,
+    /// Which lines of the page are on screen.
+    viewport: Viewport,
     /// The pages visited, with the current one marked.
     history: History,
     status: Option<Status>,
@@ -74,8 +73,7 @@ impl Session {
             page,
             view: View::Text,
             lines: Vec::new(),
-            scroll: 0,
-            viewport,
+            viewport: Viewport::new(viewport),
             history: History::new(first),
             status: None,
             overlay: Overlay::None,
@@ -206,7 +204,7 @@ impl Session {
         // Any change of page clears the mark; opening a search result sets it again after.
         self.highlight = None;
         self.status = None;
-        self.scroll = 0;
+        self.viewport.go_top();
         self.refresh_lines();
         Ok(())
     }
@@ -245,7 +243,8 @@ impl Session {
     /// Scrolls so the line holding `byte` is the first one shown, or as near as the page allows.
     fn scroll_to_byte(&mut self, byte: usize) {
         let line = self.lines.partition_point(|line| line.offset <= byte);
-        self.scroll = line.saturating_sub(1).min(self.max_scroll());
+        self.viewport
+            .go_line(line.saturating_sub(1), self.lines.len());
     }
 
     /// The bytes marked on the page, if any.
@@ -293,7 +292,10 @@ impl Session {
 
     /// Shows the page in the next view, with the first visible line kept in view.
     pub fn cycle_view(&mut self) {
-        let top = self.lines.get(self.scroll).map_or(0, |line| line.offset);
+        let top = self
+            .lines
+            .get(self.viewport.top())
+            .map_or(0, |line| line.offset);
         self.view = self.view.next();
         self.refresh_lines();
         self.scroll_to_byte(top);
@@ -301,48 +303,38 @@ impl Session {
 
     /// The first visible line.
     pub fn scroll(&self) -> usize {
-        self.scroll
+        self.viewport.top()
     }
 
     /// How many page lines fit on screen.
     #[cfg(test)]
     pub fn viewport(&self) -> usize {
-        self.viewport
-    }
-
-    /// The largest scroll position: the last line sits on the last row of the screen.
-    fn max_scroll(&self) -> usize {
-        self.lines.len().saturating_sub(self.viewport)
+        self.viewport.rows()
     }
 
     /// Tells the session how many page lines fit on screen, and keeps the scroll inside.
     pub fn set_viewport(&mut self, rows: usize) {
-        self.viewport = rows;
-        self.scroll = self.scroll.min(self.max_scroll());
+        self.viewport.set_rows(rows, self.lines.len());
     }
 
     /// Scrolls by `lines` (negative is up), stopping at the first and last line.
     pub fn scroll_by(&mut self, lines: isize) {
-        self.scroll = self
-            .scroll
-            .saturating_add_signed(lines)
-            .min(self.max_scroll());
+        self.viewport.scroll_by(lines, self.lines.len());
     }
 
     /// Scrolls half a screen down or up.
     pub fn scroll_half_page(&mut self, down: bool) {
-        let half = (self.viewport / 2).max(1) as isize;
-        self.scroll_by(if down { half } else { -half });
+        self.viewport.scroll_half_page(down, self.lines.len());
     }
 
     /// Scrolls to the first line.
     pub fn scroll_to_top(&mut self) {
-        self.scroll = 0;
+        self.viewport.go_top();
     }
 
     /// Scrolls so the last line is on the last row of the screen.
     pub fn scroll_to_bottom(&mut self) {
-        self.scroll = self.max_scroll();
+        self.viewport.go_bottom(self.lines.len());
     }
 
     /// Makes the display lines again. Called after every change of the page or the view.
@@ -392,36 +384,6 @@ mod test {
         assert_eq!(session.page().len(), 3200);
         assert_eq!(session.lines().len(), 50);
         assert_eq!(session.lines().last().unwrap().offset, 49 * 64);
-    }
-
-    #[test]
-    fn scrolling_stops_at_both_ends() {
-        let mut session = session(LibraryConfig::MEDIUM);
-        session.scroll_by(-5);
-        assert_eq!(session.scroll(), 0);
-        session.scroll_by(1000);
-        assert_eq!(session.scroll(), 50 - 18);
-        session.scroll_to_top();
-        assert_eq!(session.scroll(), 0);
-        session.scroll_to_bottom();
-        assert_eq!(session.scroll(), 32);
-    }
-
-    #[test]
-    fn half_page_scrolls_half_the_viewport() {
-        let mut session = session(LibraryConfig::MEDIUM);
-        session.scroll_half_page(true);
-        assert_eq!(session.scroll(), 9);
-        session.scroll_half_page(false);
-        assert_eq!(session.scroll(), 0);
-    }
-
-    #[test]
-    fn a_page_that_fits_does_not_scroll() {
-        let mut session = session(LibraryConfig::SMALL);
-        session.scroll_by(5);
-        session.scroll_to_bottom();
-        assert_eq!(session.scroll(), 0);
     }
 
     #[test]

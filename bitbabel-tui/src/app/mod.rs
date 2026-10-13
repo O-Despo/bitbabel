@@ -11,6 +11,7 @@ mod session;
 mod setup;
 #[cfg(test)]
 pub(crate) mod test_util;
+mod viewport;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
