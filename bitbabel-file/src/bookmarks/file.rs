@@ -150,6 +150,7 @@ impl BookmarkFile {
         let mut text = self.settings.header();
         for bookmark in &self.bookmarks {
             text.push_str(&bookmark.line());
+            text.push('\n');
         }
         text.into_bytes()
     }

@@ -47,7 +47,8 @@ fn is_hidden(c: char) -> bool {
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let bookmark = Bookmark::new(1_790_812_800, "a word", PageIndex::zero(3))?;
-/// assert_eq!(bookmark.line(), "1790812800\ta word\tAAAA\n");
+/// assert_eq!(bookmark.line(), "1790812800\ta word\tAAAA");
+/// assert_eq!(Bookmark::from_line(bookmark.line().as_bytes(), 3)?, bookmark);
 /// # Ok(())
 /// # }
 /// ```
@@ -85,14 +86,9 @@ impl Bookmark {
         &self.index
     }
 
-    /// The line, ending in `\n`.
+    /// The line, without its `\n`: the form [`from_line`](Self::from_line) reads.
     pub fn line(&self) -> String {
-        format!(
-            "{}\t{}\t{}\n",
-            self.time,
-            self.label,
-            self.index.to_base64()
-        )
+        format!("{}\t{}\t{}", self.time, self.label, self.index.to_base64())
     }
 
     /// Reads one line, without its `\n`. `page_len` is the page length of the library.
@@ -163,9 +159,9 @@ mod test {
     #[test]
     fn writes_the_agreed_line() {
         let bookmark = Bookmark::new(1_790_812_800, "looks like a word", index()).unwrap();
-        assert_eq!(bookmark.line(), "1790812800\tlooks like a word\tAQIDBAX/\n");
+        assert_eq!(bookmark.line(), "1790812800\tlooks like a word\tAQIDBAX/");
         let empty = Bookmark::new(0, "", index()).unwrap();
-        assert_eq!(empty.line(), "0\t\tAQIDBAX/\n");
+        assert_eq!(empty.line(), "0\t\tAQIDBAX/");
     }
 
     #[test]
@@ -178,7 +174,7 @@ mod test {
         ] {
             let bookmark = Bookmark::new(time, label, index()).unwrap();
             let line = bookmark.line();
-            let parsed = Bookmark::from_line(line.trim_end().as_bytes(), PAGE_LEN).unwrap();
+            let parsed = Bookmark::from_line(line.as_bytes(), PAGE_LEN).unwrap();
             assert_eq!(parsed, bookmark);
             assert_eq!(parsed.time(), time);
             assert_eq!(parsed.label(), label);
