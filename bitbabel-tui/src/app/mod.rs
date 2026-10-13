@@ -4,6 +4,7 @@
 mod effect;
 mod explore;
 mod library;
+mod prompt;
 mod session;
 mod setup;
 
@@ -11,6 +12,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
 pub use library::{LibraryChoice, fingerprint_text};
+pub use prompt::Prompt;
 pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
@@ -505,5 +507,113 @@ mod test {
         let status = status_of(&app).unwrap();
         assert!(status.error);
         assert_eq!(status.text, "cannot get random bytes from the OS: blocked");
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            app.handle_key(press(KeyCode::Char(c)));
+        }
+    }
+
+    fn prompt_of(app: &App) -> Option<&Prompt> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt()
+    }
+
+    #[test]
+    fn x_opens_the_export_prompt_and_esc_closes_it() {
+        let mut app = medium_app();
+        assert!(prompt_of(&app).is_none());
+        app.handle_key(press(KeyCode::Char('x')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "export index");
+        app.handle_key(press(KeyCode::Esc));
+        assert!(prompt_of(&app).is_none());
+    }
+
+    #[test]
+    fn typing_into_a_prompt_never_runs_a_command() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('x')));
+        // `l` would step a page and `q` would quit if the prompt did not take them.
+        type_text(&mut app, "lq.txt");
+        assert_eq!(prompt_of(&app).unwrap().input(), "lq.txt");
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(prompt_of(&app).unwrap().input(), "lq.tx");
+    }
+
+    #[test]
+    fn ctrl_c_still_quits_with_a_prompt_open() {
+        let mut app = medium_app();
+        app.handle_key(press(KeyCode::Char('x')));
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(app.handle_key(ctrl_c), [Effect::Quit]);
+    }
+
+    /// An app on `files`, small size, with the export prompt open and `name` typed.
+    fn export_to(files: MemFiles, name: &str) -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(files));
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, name);
+        app
+    }
+
+    #[test]
+    fn export_writes_the_index_as_base64_and_a_newline() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        // Share the fake with the app so the test can look inside it afterwards.
+        struct Shared(std::sync::Arc<MemFiles>);
+        impl Files for Shared {
+            fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
+                self.0.read(path, max)
+            }
+            fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+                self.0.write_new(path, bytes)
+            }
+        }
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(Shared(files.clone())));
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('x')));
+        type_text(&mut app, "idx.txt");
+        app.handle_key(press(KeyCode::Enter));
+
+        let expected = format!("{}\n", index_of(&app).to_base64());
+        assert_eq!(files.get("idx.txt").unwrap(), expected.as_bytes());
+        assert!(prompt_of(&app).is_none());
+        assert_eq!(status_of(&app).unwrap().text, "index written to idx.txt");
+    }
+
+    #[test]
+    fn export_refuses_an_existing_file_and_keeps_the_prompt_open() {
+        let files = MemFiles::default().with("taken.txt", b"keep me");
+        let mut app = export_to(files, "taken.txt");
+        app.handle_key(press(KeyCode::Enter));
+        let prompt = prompt_of(&app).unwrap();
+        assert_eq!(
+            prompt.error(),
+            Some("taken.txt already exists, choose another name")
+        );
+        // The name is still there to edit, and typing clears the error.
+        assert_eq!(prompt.input(), "taken.txt");
+        app.handle_key(press(KeyCode::Char('2')));
+        assert_eq!(prompt_of(&app).unwrap().error(), None);
+    }
+
+    #[test]
+    fn export_with_no_name_says_so() {
+        let mut app = export_to(MemFiles::default(), "  ");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(prompt_of(&app).unwrap().error(), Some("type a file name"));
     }
 }

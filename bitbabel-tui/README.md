@@ -65,6 +65,7 @@ and volume), then the page itself with the offset of each line on the left.
 | `←` `→` | Back and forward through the pages you visited, like a browser (the last 100) |
 | `r` | A random page. It is not repeatable, so keep a find by its index |
 | `e` | Show the page as text, hex, base64 or utf8 |
+| `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |
 | `s` | Start over |
 | `q` | Quit |
 

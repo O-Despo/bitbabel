@@ -1,6 +1,7 @@
 //! Drawing only. It reads the [`App`] and never changes it.
 
 mod explore;
+mod prompt;
 mod setup;
 
 use ratatui::Frame;
@@ -23,7 +24,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
     match app.mode() {
         Mode::Setup(form) => setup::draw(frame, area, form),
-        Mode::Explore(session) => explore::draw(frame, area, session),
+        Mode::Explore(session) => {
+            explore::draw(frame, area, session);
+            if let Some(open) = session.prompt() {
+                prompt::draw(frame, area, open);
+            }
+        }
     }
 }
 
@@ -286,5 +292,32 @@ mod test {
         };
         assert_eq!(page_rows, session.viewport());
         assert_eq!(session.viewport(), 24);
+    }
+
+    #[test]
+    fn an_open_prompt_is_drawn_over_the_page_with_its_error() {
+        let files = MemFiles::default().with("taken.txt", b"x");
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+            },
+            fake_random,
+            Box::new(files),
+        );
+        let press = |app: &mut App, code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut app, KeyCode::Char('x'));
+        for c in "taken.txt".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        let before = render(&app, 80, 24);
+        assert!(before.contains("export index"));
+        assert!(before.contains("> taken.txt"));
+        assert!(!before.contains("already exists"));
+
+        press(&mut app, KeyCode::Enter);
+        assert!(render(&app, 80, 24).contains("✗ taken.txt already exists, choose another name"));
     }
 }

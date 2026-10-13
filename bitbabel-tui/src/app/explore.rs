@@ -4,11 +4,18 @@ use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::KeyEvent;
 
 use super::effect::Effect;
+use super::prompt::{self, PromptKind};
 use super::{App, Mode};
 use crate::keymap::{self, Action};
 
 /// Handles a key press in [`Mode::Explore`].
 pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
+    // An open prompt gets every key, so typing into it never runs a command.
+    if let Mode::Explore(session) = &app.mode
+        && session.prompt().is_some()
+    {
+        return prompt::handle_key(app, key);
+    }
     let Some(action) = keymap::action_for(&key) else {
         return vec![];
     };
@@ -25,6 +32,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::PrevPage => session.step(false),
         Action::HistoryBack => session.back(),
         Action::HistoryForward => session.forward(),
+        Action::Export => session.open_prompt(PromptKind::Export),
         Action::CycleView => session.cycle_view(),
         Action::Random => {}
         Action::StartOver => app.start_over(),

@@ -14,6 +14,7 @@ pub enum Action {
     HistoryBack,
     HistoryForward,
     Random,
+    Export,
     CycleView,
     Quit,
     StartOver,
@@ -69,6 +70,7 @@ const BINDINGS: &[Binding] = &[
     ),
     bind(Pattern::Code(KeyCode::Right), Action::HistoryForward, None),
     bind(Pattern::Char('r'), Action::Random, Some("r random")),
+    bind(Pattern::Char('x'), Action::Export, None),
     bind(Pattern::Char('e'), Action::CycleView, Some("e view")),
     bind(Pattern::Char('s'), Action::StartOver, Some("s start over")),
     bind(Pattern::Char('q'), Action::Quit, Some("q quit")),
@@ -123,6 +125,7 @@ mod test {
         assert_eq!(plain('l'), Some(Action::NextPage));
         assert_eq!(plain('e'), Some(Action::CycleView));
         assert_eq!(plain('r'), Some(Action::Random));
+        assert_eq!(plain('x'), Some(Action::Export));
         assert_eq!(
             action_for(&key(KeyCode::Left, KeyModifiers::NONE)),
             Some(Action::HistoryBack)

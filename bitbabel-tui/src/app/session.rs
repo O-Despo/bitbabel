@@ -3,6 +3,7 @@
 use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
 use super::library::LibraryChoice;
+use super::prompt::{Prompt, PromptKind};
 use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
@@ -25,6 +26,8 @@ pub struct Session {
     /// The pages visited, with the current one marked.
     history: History,
     status: Option<Status>,
+    /// A one-line prompt that is open over the page, if any.
+    prompt: Option<Prompt>,
 }
 
 /// A message for the status line.
@@ -57,6 +60,7 @@ impl Session {
             viewport,
             history: History::new(first),
             status: None,
+            prompt: None,
         };
         session.refresh_lines();
         Ok(session)
@@ -93,8 +97,34 @@ impl Session {
         self.status.as_ref()
     }
 
+    /// The open prompt, if any.
+    pub fn prompt(&self) -> Option<&Prompt> {
+        self.prompt.as_ref()
+    }
+
+    pub(super) fn prompt_mut(&mut self) -> Option<&mut Prompt> {
+        self.prompt.as_mut()
+    }
+
+    /// Opens a prompt. It gets every key until it is closed.
+    pub fn open_prompt(&mut self, kind: PromptKind) {
+        self.prompt = Some(Prompt::new(kind));
+    }
+
+    /// Closes the open prompt, if any.
+    pub fn close_prompt(&mut self) {
+        self.prompt = None;
+    }
+
+    /// Shows `message` inside the open prompt, which stays open.
+    pub(super) fn set_prompt_error(&mut self, message: impl Into<String>) {
+        if let Some(prompt) = self.prompt.as_mut() {
+            prompt.set_error(message);
+        }
+    }
+
     /// Shows `text` on the status line.
-    fn set_status(&mut self, text: impl Into<String>) {
+    pub fn set_status(&mut self, text: impl Into<String>) {
         self.status = Some(Status {
             text: text.into(),
             error: false,
