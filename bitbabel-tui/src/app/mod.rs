@@ -1155,4 +1155,18 @@ mod test {
         assert!(form_of(&app).is_fresh(View::Hex));
         assert_ne!(form_of(&app).hits(), before.as_slice());
     }
+
+    #[test]
+    fn a_bad_needle_is_reported_even_when_the_random_source_fails() {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+        };
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "a中");
+        app.handle_key(press(KeyCode::Enter));
+        let error = form_of(&app).error().unwrap().to_string();
+        assert!(error.contains("not in the BitBabel text table"), "{error}");
+    }
 }

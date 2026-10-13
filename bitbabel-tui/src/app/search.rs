@@ -104,18 +104,11 @@ impl SearchForm {
         };
     }
 
-    /// Searches `library` for the typed needle. A problem is kept as the error and the
-    /// earlier results are left alone.
-    fn search(&mut self, library: &BabelLibrary, view: View, seed: [u8; 32]) {
-        let bytes = match needle::parse(view, &self.input) {
-            Ok(bytes) => bytes,
-            Err(message) => {
-                self.error = Some(message);
-                return;
-            }
-        };
+    /// Searches `library` for `needle`, which was parsed from the typed text in `view`. A
+    /// problem is kept as the error and the earlier results are left alone.
+    fn search(&mut self, library: &BabelLibrary, view: View, needle: &[u8], seed: [u8; 32]) {
         let options = SearchOptions::surrounded(seed).limit(RESULTS);
-        match library.search(&bytes, &options) {
+        match library.search(needle, &options) {
             Ok(found) => {
                 self.hits = found
                     .iter()
@@ -236,17 +229,25 @@ pub(super) fn step_result(session: &mut Session, forward: bool) {
 
 /// Searches with a fresh random seed. Ctrl+R in the overlay does this for a new set of
 /// results from the same needle.
+///
+/// The needle is checked first, so a bad needle is reported as that and never uses randomness.
 pub(super) fn run_search(session: &mut Session, random: RandomFn) {
     let view = session.view();
     let library = session.library().open();
-    let mut seed = [0u8; 32];
-    let seeded = random(&mut seed);
     let Some(form) = session.search_form_mut() else {
         return;
     };
-    match (library, seeded) {
-        (Ok(library), Ok(())) => form.search(&library, view, seed),
-        (Err(error), _) => form.set_error(error.to_string()),
-        (_, Err(error)) => form.set_error(error.to_string()),
+    let needle = match needle::parse(view, &form.input) {
+        Ok(needle) => needle,
+        Err(message) => return form.set_error(message),
+    };
+    let library = match library {
+        Ok(library) => library,
+        Err(error) => return form.set_error(error.to_string()),
+    };
+    let mut seed = [0u8; 32];
+    if let Err(error) = random(&mut seed) {
+        return form.set_error(error.to_string());
     }
+    form.search(&library, view, &needle, seed);
 }
