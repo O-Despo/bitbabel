@@ -138,7 +138,7 @@ const BINDINGS: &[Binding] = &[
         Pattern::Char('g'),
         Action::GoTo,
         Some("g go to"),
-        Some("go to an index read from a file"),
+        Some("go to an index from a file"),
     ),
     bind(
         Pattern::Char('/'),
@@ -168,13 +168,13 @@ const BINDINGS: &[Binding] = &[
         Pattern::Char('e'),
         Action::CycleView,
         Some("e view"),
-        Some("next view: text, hex, base64, utf8"),
+        Some("cycle text, hex, base64, utf8"),
     ),
     bind(
         Pattern::Char('s'),
         Action::StartOver,
         None,
-        Some("start over with another library"),
+        Some("start over, another library"),
     ),
     bind(
         Pattern::Char('q'),
