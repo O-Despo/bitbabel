@@ -9,8 +9,8 @@
 //! - [`IndexFormat`] writes a list of page indices as raw bytes, hex lines or base64 lines.
 //! - [`Settings`] records the size, [`KeyMode`], format and whether to add a checksum. A file
 //!   writes them, with the checksum, as its one-line header.
-//! - [`BookmarkSettings`] and [`BookmarkKey`] name the library a bookmark file belongs to, and
-//!   write and read its one-line header.
+//! - [`BookmarkFile`] is the other kind of file: a list of [`Bookmark`]s (time, label, index)
+//!   in one library, named by [`BookmarkSettings`] and [`BookmarkKey`].
 //! - [`BabelFile`] ties them together: [`encode`](BabelFile::encode) and
 //!   [`decode`](BabelFile::decode) turn data into indices and back, and
 //!   [`to_bytes`](BabelFile::to_bytes) and [`from_bytes`](BabelFile::from_bytes) write and read
@@ -24,7 +24,9 @@ mod format;
 mod header;
 mod pad;
 
-pub use bookmarks::{Bookmark, BookmarkKey, BookmarkSettings, MAX_LABEL_CHARS};
+pub use bookmarks::{
+    Bookmark, BookmarkFile, BookmarkKey, BookmarkSettings, MAX_BOOKMARKS, MAX_LABEL_CHARS,
+};
 pub use error::{BookmarkError, FileError, HeaderError, IndexFormatError, LineError, PadError};
 pub use file::BabelFile;
 pub use format::IndexFormat;

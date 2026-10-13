@@ -223,7 +223,8 @@ impl From<LibraryError> for FileError {
     }
 }
 
-/// Errors from the bookmark file: its header now, and its lines and list as they are added.
+/// Errors from a bookmark file: its header, its list, and changes to it. A bad line is a
+/// [`LineError`] inside [`Line`](BookmarkError::Line).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BookmarkError {
     /// The header can only name the presets, so custom shapes cannot be written to a file.
@@ -253,6 +254,22 @@ pub enum BookmarkError {
     MissingFingerprint,
     /// A `fingerprint` field only belongs to `key=custom`.
     UnexpectedFingerprint,
+    /// The last line has no terminating `\n`.
+    MissingFinalNewline,
+    /// A bookmark line was invalid. `line` counts file lines, so the header is line 1. The
+    /// message includes the line error's own.
+    Line { line: usize, error: LineError },
+    /// A bookmark to add was invalid. The message includes the line error's own.
+    Invalid(LineError),
+    /// An index is not one page of the file's library.
+    IndexLen { expected: usize, actual: usize },
+    /// The index is already bookmarked, on `first_line`. For an add, `line` is the line the
+    /// new bookmark would have had.
+    DuplicateIndex { first_line: usize, line: usize },
+    /// A file holds at most `max` bookmarks.
+    TooManyBookmarks { max: usize },
+    /// There is no bookmark at `position` (counting from 0) in a file of `len`.
+    NoSuchBookmark { position: usize, len: usize },
 }
 
 impl fmt::Display for BookmarkError {
@@ -290,6 +307,23 @@ impl fmt::Display for BookmarkError {
             }
             BookmarkError::UnexpectedFingerprint => {
                 write!(f, "header has a fingerprint but says key=canonical")
+            }
+            BookmarkError::MissingFinalNewline => {
+                write!(f, "the last line has no terminating newline")
+            }
+            BookmarkError::Line { line, error } => write!(f, "line {line}: {error}"),
+            BookmarkError::Invalid(error) => write!(f, "{error}"),
+            BookmarkError::IndexLen { expected, actual } => {
+                write!(f, "index is {actual} bytes, expected {expected}")
+            }
+            BookmarkError::DuplicateIndex { first_line, line } => {
+                write!(f, "line {line} has the same index as line {first_line}")
+            }
+            BookmarkError::TooManyBookmarks { max } => {
+                write!(f, "a bookmark file holds at most {max} bookmarks")
+            }
+            BookmarkError::NoSuchBookmark { position, len } => {
+                write!(f, "no bookmark at position {position}, the file has {len}")
             }
         }
     }

@@ -20,6 +20,7 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<BookmarkError>();
     assert_send_sync::<Bookmark>();
     assert_send_sync::<LineError>();
+    assert_send_sync::<BookmarkFile>();
 }
 
 /// Every size, format, key mode and checksum setting, at data lengths around a page boundary.

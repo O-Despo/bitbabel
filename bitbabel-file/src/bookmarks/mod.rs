@@ -7,8 +7,10 @@
 //! This is a different kind of file from `.babel`. It has its own magic word, so neither
 //! reader mistakes the other's files for its own. Like `.babel`, it works on bytes only.
 
+mod file;
 mod header;
 mod line;
 
+pub use file::{BookmarkFile, MAX_BOOKMARKS};
 pub use header::{BookmarkKey, BookmarkSettings};
 pub use line::{Bookmark, MAX_LABEL_CHARS};
