@@ -89,14 +89,18 @@ pub fn status_of(app: &App) -> Option<crate::app::session::Status> {
 }
 
 /// A fake file system the test can keep a handle on after giving it to the app.
-pub struct SharedFiles(pub std::sync::Arc<MemFiles>);
+pub struct SharedFiles<F>(pub std::sync::Arc<F>);
 
-impl Files for SharedFiles {
+impl<F: Files> Files for SharedFiles<F> {
     fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
         self.0.read(path, max)
     }
 
     fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
         self.0.write_new(path, bytes)
+    }
+
+    fn write_replace(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+        self.0.write_replace(path, bytes)
     }
 }

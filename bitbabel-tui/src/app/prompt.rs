@@ -362,21 +362,11 @@ mod test {
     #[test]
     fn export_writes_the_index_as_base64_and_a_newline() {
         let files = std::sync::Arc::new(MemFiles::default());
-        // Share the fake with the app so the test can look inside it afterwards.
-        struct Shared(std::sync::Arc<MemFiles>);
-        impl Files for Shared {
-            fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
-                self.0.read(path, max)
-            }
-            fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-                self.0.write_new(path, bytes)
-            }
-        }
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(Shared(files.clone())));
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files.clone())));
         app.handle_key(press(KeyCode::Char('l')));
         app.handle_key(press(KeyCode::Char('x')));
         type_text(&mut app, "idx.txt");
