@@ -24,8 +24,8 @@ mod format;
 mod header;
 mod pad;
 
-pub use bookmarks::{BookmarkKey, BookmarkSettings};
-pub use error::{BookmarkError, FileError, HeaderError, IndexFormatError, PadError};
+pub use bookmarks::{Bookmark, BookmarkKey, BookmarkSettings, MAX_LABEL_CHARS};
+pub use error::{BookmarkError, FileError, HeaderError, IndexFormatError, LineError, PadError};
 pub use file::BabelFile;
 pub use format::IndexFormat;
 pub use header::{KeyMode, Settings};

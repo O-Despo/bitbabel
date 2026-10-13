@@ -8,5 +8,7 @@
 //! reader mistakes the other's files for its own. Like `.babel`, it works on bytes only.
 
 mod header;
+mod line;
 
 pub use header::{BookmarkKey, BookmarkSettings};
+pub use line::{Bookmark, MAX_LABEL_CHARS};

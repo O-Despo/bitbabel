@@ -297,3 +297,56 @@ impl fmt::Display for BookmarkError {
 
 // No `source()`, for the same reason as `IndexFormatError`.
 impl Error for BookmarkError {}
+
+/// Errors from one bookmark line, or from building a [`Bookmark`](crate::Bookmark).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LineError {
+    /// The line is not UTF-8.
+    NotText,
+    /// The line ends in `\r`: the file was saved with Windows line endings.
+    WindowsLineEndings,
+    /// A line is `time TAB label TAB index`, so it has exactly three fields.
+    FieldCount { found: usize },
+    /// The time is not the plain digits of a `u64`.
+    Time(String),
+    /// The label has a control character, or one that reorders text.
+    InvalidLabel(char),
+    /// The label has more than `max` characters.
+    LabelTooLong { len: usize, max: usize },
+    /// The index is not canonical base64 of one page. The message includes the decoder's own.
+    Index(PageIndexError),
+}
+
+impl fmt::Display for LineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LineError::NotText => write!(f, "line is not valid text"),
+            LineError::WindowsLineEndings => write!(
+                f,
+                "line ends in a carriage return (file saved with Windows line endings?)"
+            ),
+            LineError::FieldCount { found } => write!(
+                f,
+                "a bookmark line must have 3 tab-separated fields, found {found}"
+            ),
+            LineError::Time(time) => {
+                write!(
+                    f,
+                    "invalid time {time:?}, expected digits without leading zeros"
+                )
+            }
+            LineError::InvalidLabel(c) => write!(
+                f,
+                "label contains a control or text-reordering character U+{:04X}",
+                u32::from(*c)
+            ),
+            LineError::LabelTooLong { len, max } => {
+                write!(f, "label has {len} characters, at most {max} are allowed")
+            }
+            LineError::Index(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+// No `source()`, for the same reason as `IndexFormatError`.
+impl Error for LineError {}
