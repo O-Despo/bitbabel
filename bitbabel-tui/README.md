@@ -63,6 +63,7 @@ and volume), then the page itself with the offset of each line on the left.
 | `Ctrl+D` `Ctrl+U` | Scroll half a screen |
 | `Home` `End` | Top and bottom of the page |
 | `←` `→` | Back and forward through the pages you visited, like a browser (the last 100) |
+| `g` | Go to the index in a file. Hex or base64 is picked by length, and whitespace is ignored |
 | `r` | A random page. It is not repeatable, so keep a find by its index |
 | `e` | Show the page as text, hex, base64 or utf8 |
 | `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |

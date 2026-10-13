@@ -32,6 +32,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::PrevPage => session.step(false),
         Action::HistoryBack => session.back(),
         Action::HistoryForward => session.forward(),
+        Action::GoTo => session.open_prompt(PromptKind::GoTo),
         Action::Export => session.open_prompt(PromptKind::Export),
         Action::CycleView => session.cycle_view(),
         Action::Random => {}
