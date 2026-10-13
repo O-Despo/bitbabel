@@ -102,6 +102,8 @@ pub enum HeaderError {
     NotAPreset(LibraryConfig),
     /// The bytes do not start with `BITBABEL`.
     NotBabelFile,
+    /// The bytes are a bookmark file (they start with `BABELMARKS`), not a `.babel` file.
+    BookmarkFile,
     /// The header is from a format version this crate does not read.
     UnsupportedVersion(String),
     /// The header line has no terminating `\n`.
@@ -131,6 +133,9 @@ impl fmt::Display for HeaderError {
                 config.rounds()
             ),
             HeaderError::NotBabelFile => write!(f, "not a bitbabel file"),
+            HeaderError::BookmarkFile => {
+                write!(f, "this is a bookmark file, not a .babel file")
+            }
             HeaderError::UnsupportedVersion(version) => {
                 write!(
                     f,

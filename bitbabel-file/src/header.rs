@@ -21,6 +21,9 @@ const MAGIC: &str = "BITBABEL1";
 /// Every header starts with this, whatever its version.
 const MAGIC_PREFIX: &str = "BITBABEL";
 
+/// A bookmark file starts with this. It is named so the reader can say what the file is.
+const BOOKMARK_MAGIC_PREFIX: &str = "BABELMARKS";
+
 /// Field names, in the order they must appear. All but the last are required.
 const FIELDS: [&str; 4] = ["size", "key", "format", "check"];
 
@@ -167,6 +170,7 @@ impl Header {
     ///
     /// # Errors
     ///
+    /// - [`HeaderError::BookmarkFile`] if `bytes` start with `BABELMARKS`.
     /// - [`HeaderError::NotBabelFile`] if `bytes` does not start with `BITBABEL`.
     /// - [`HeaderError::UnsupportedVersion`] for a version other than `BITBABEL1`.
     /// - [`HeaderError::MissingNewline`] if there is no `\n`.
@@ -177,6 +181,9 @@ impl Header {
     /// - [`HeaderError::Value`] for a value that is not one of the lowercase names, or a check
     ///   that is not 16 lowercase hex digits.
     pub(crate) fn parse(bytes: &[u8]) -> Result<(Self, &[u8]), HeaderError> {
+        if bytes.starts_with(BOOKMARK_MAGIC_PREFIX.as_bytes()) {
+            return Err(HeaderError::BookmarkFile);
+        }
         if !bytes.starts_with(MAGIC_PREFIX.as_bytes()) {
             return Err(HeaderError::NotBabelFile);
         }
@@ -324,6 +331,10 @@ mod test {
         assert_eq!(parse_err(b"hello\n"), HeaderError::NotBabelFile);
         assert_eq!(parse_err(b""), HeaderError::NotBabelFile);
         assert_eq!(
+            parse_err(b"BABELMARKS1 size=medium key=canonical format=base64\n"),
+            HeaderError::BookmarkFile
+        );
+        assert_eq!(
             parse_err(b"BITBABEL2 size=medium key=canonical format=raw\n"),
             HeaderError::UnsupportedVersion("BITBABEL2".to_string())
         );
@@ -430,6 +441,10 @@ mod test {
         assert_eq!(
             parse_err(b"BITBABEL1 size=huge key=canonical format=raw\n").to_string(),
             "invalid value \"huge\" for header field \"size\""
+        );
+        assert_eq!(
+            HeaderError::BookmarkFile.to_string(),
+            "this is a bookmark file, not a .babel file"
         );
         assert_eq!(
             HeaderError::FieldCount { found: 2 }.to_string(),

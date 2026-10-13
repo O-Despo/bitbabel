@@ -273,6 +273,11 @@ mod test {
             BabelFile::from_bytes(b"hello"),
             Err(FileError::Header(HeaderError::NotBabelFile))
         );
+        // A bookmark file is named as one, not called "not a bitbabel file".
+        assert_eq!(
+            BabelFile::from_bytes(b"BABELMARKS1 size=small key=canonical format=base64\n"),
+            Err(FileError::Header(HeaderError::BookmarkFile))
+        );
         assert!(matches!(
             BabelFile::from_bytes(b"BITBABEL1 size=small key=canonical format=raw\n\x01\x02"),
             Err(FileError::Index(_))
