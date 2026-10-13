@@ -62,6 +62,7 @@ and volume), then the page itself with the offset of each line on the left.
 | `j` `k` | Scroll one line |
 | `Ctrl+D` `Ctrl+U` | Scroll half a screen |
 | `Home` `End` | Top and bottom of the page |
+| `←` `→` | Back and forward through the pages you visited, like a browser (the last 100) |
 | `e` | Show the page as text, hex, base64 or utf8 |
 | `s` | Start over |
 | `q` | Quit |

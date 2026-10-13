@@ -3,6 +3,7 @@
 use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
 use super::library::LibraryChoice;
+use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
 /// One session in one library.
@@ -21,6 +22,8 @@ pub struct Session {
     scroll: usize,
     /// How many page lines fit on screen.
     viewport: usize,
+    /// The pages visited, with the current one marked.
+    history: History,
     status: Option<Status>,
 }
 
@@ -42,7 +45,7 @@ impl Session {
     pub fn new(library: LibraryChoice, viewport: usize) -> Result<Self, LibraryError> {
         let opened = library.open()?;
         let first = PageIndex::zero(opened.page_len());
-        let cursor = Cursor::new(opened, first)?;
+        let cursor = Cursor::new(opened, first.clone())?;
         let page = cursor.current()?.bytes().to_vec();
         let mut session = Session {
             library,
@@ -52,6 +55,7 @@ impl Session {
             lines: Vec::new(),
             scroll: 0,
             viewport,
+            history: History::new(first),
             status: None,
         };
         session.refresh_lines();
@@ -89,6 +93,14 @@ impl Session {
         self.status.as_ref()
     }
 
+    /// Shows `text` on the status line.
+    fn set_status(&mut self, text: impl Into<String>) {
+        self.status = Some(Status {
+            text: text.into(),
+            error: false,
+        });
+    }
+
     /// Shows `text` on the status line as an error.
     fn set_error(&mut self, text: impl Into<String>) {
         self.status = Some(Status {
@@ -111,6 +123,40 @@ impl Session {
         Ok(())
     }
 
+    /// Goes to the page at `index` and records the visit in the history.
+    ///
+    /// # Errors
+    ///
+    /// [`LibraryError::LenMismatch`] if `index` is not this library's length. Nothing changes.
+    pub fn visit(&mut self, index: PageIndex) -> Result<(), LibraryError> {
+        self.show(index.clone())?;
+        self.history.visit(index);
+        Ok(())
+    }
+
+    /// Goes back one page in the history, or says there is none.
+    pub fn back(&mut self) {
+        match self.history.back().cloned() {
+            Some(index) => self.show_from_history(index),
+            None => self.set_status("this is the first page visited"),
+        }
+    }
+
+    /// Goes forward one page in the history, or says there is none.
+    pub fn forward(&mut self) {
+        match self.history.forward().cloned() {
+            Some(index) => self.show_from_history(index),
+            None => self.set_status("this is the last page visited"),
+        }
+    }
+
+    /// Shows a page the history moved to. It is not recorded again.
+    fn show_from_history(&mut self, index: PageIndex) {
+        if let Err(error) = self.show(index) {
+            self.set_error(error.to_string());
+        }
+    }
+
     /// Goes to the next page or the one before it, wrapping at the ends.
     pub fn step(&mut self, forward: bool) {
         let mut index = self.cursor.index().clone();
@@ -120,7 +166,7 @@ impl Session {
             index.decrement();
         }
         // The new index has the old one's length, so this does not fail in practice.
-        if let Err(error) = self.show(index) {
+        if let Err(error) = self.visit(index) {
             self.set_error(error.to_string());
         }
     }
@@ -349,5 +395,71 @@ mod test {
         let before = session.index().clone();
         session.cycle_view();
         assert_eq!(session.index(), &before);
+    }
+
+    #[test]
+    fn back_and_forward_follow_the_pages_visited() {
+        let mut session = session(LibraryConfig::SMALL);
+        session.step(true);
+        session.step(true);
+        session.back();
+        assert_eq!(session.index(), &number(1, 16));
+        session.back();
+        assert_eq!(session.index(), &number(0, 16));
+        session.forward();
+        assert_eq!(session.index(), &number(1, 16));
+    }
+
+    #[test]
+    fn back_at_the_start_and_forward_at_the_end_say_so_and_stay() {
+        let mut session = session(LibraryConfig::SMALL);
+        session.back();
+        assert_eq!(session.index(), &number(0, 16));
+        assert_eq!(
+            session.status().unwrap().text,
+            "this is the first page visited"
+        );
+        session.forward();
+        assert_eq!(
+            session.status().unwrap().text,
+            "this is the last page visited"
+        );
+    }
+
+    #[test]
+    fn moving_in_the_history_does_not_record_visits() {
+        let mut session = session(LibraryConfig::SMALL);
+        session.step(true);
+        session.back();
+        // A new visit now drops the page that was ahead, instead of keeping it.
+        session.visit(number(9, 16)).unwrap();
+        session.forward();
+        assert_eq!(session.index(), &number(9, 16));
+        assert_eq!(
+            session.status().unwrap().text,
+            "this is the last page visited"
+        );
+    }
+
+    #[test]
+    fn visit_checks_the_index_length_and_changes_nothing_on_error() {
+        let mut session = session(LibraryConfig::SMALL);
+        assert!(session.visit(number(5, 4)).is_err());
+        assert_eq!(session.index(), &number(0, 16));
+        session.forward();
+        assert_eq!(
+            session.status().unwrap().text,
+            "this is the last page visited"
+        );
+    }
+
+    #[test]
+    fn going_back_shows_that_pages_bytes_again() {
+        let mut session = session(LibraryConfig::SMALL);
+        let first = session.page().to_vec();
+        session.step(true);
+        assert_ne!(session.page(), first);
+        session.back();
+        assert_eq!(session.page(), first);
     }
 }

@@ -443,4 +443,28 @@ mod test {
         };
         assert_eq!(session.viewport(), 34);
     }
+
+    fn index_of(app: &App) -> bitbabel_core::PageIndex {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.index().clone()
+    }
+
+    #[test]
+    fn left_and_right_walk_back_and_forward_through_the_visits() {
+        let mut app = medium_app();
+        let start = index_of(&app);
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('l')));
+        let third = index_of(&app);
+        assert_ne!(third, start);
+
+        app.handle_key(press(KeyCode::Left));
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(index_of(&app), start);
+        app.handle_key(press(KeyCode::Right));
+        app.handle_key(press(KeyCode::Right));
+        assert_eq!(index_of(&app), third);
+    }
 }
