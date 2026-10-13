@@ -222,3 +222,78 @@ impl From<LibraryError> for FileError {
         FileError::Library(err)
     }
 }
+
+/// Errors from the bookmark file: its header now, and its lines and list as they are added.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BookmarkError {
+    /// The header can only name the presets, so custom shapes cannot be written to a file.
+    NotAPreset(LibraryConfig),
+    /// The bytes do not start with `BABELMARKS`.
+    NotBookmarkFile,
+    /// The header is from a format version this crate does not read.
+    UnsupportedVersion(String),
+    /// The header line has no terminating `\n`.
+    MissingNewline,
+    /// The header line is not UTF-8.
+    NotText,
+    /// A line ends in `\r\n`: the file was saved with Windows line endings.
+    WindowsLineEndings,
+    /// The header must have 3 fields, or 4 with a fingerprint. Doubled or trailing spaces
+    /// count as empty fields.
+    FieldCount { found: usize },
+    /// A field is out of order or unknown.
+    Field {
+        expected: &'static str,
+        found: String,
+    },
+    /// A field's value is not one of its lowercase names, or a fingerprint is not 16
+    /// lowercase hex digits.
+    Value { field: &'static str, value: String },
+    /// `key=custom` needs a `fingerprint` field.
+    MissingFingerprint,
+    /// A `fingerprint` field only belongs to `key=custom`.
+    UnexpectedFingerprint,
+}
+
+impl fmt::Display for BookmarkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BookmarkError::NotAPreset(config) => write!(
+                f,
+                "only small, medium and large can be written to a file, got page_len {} and rounds {}",
+                config.page_len(),
+                config.rounds()
+            ),
+            BookmarkError::NotBookmarkFile => write!(f, "not a bookmark file"),
+            BookmarkError::UnsupportedVersion(version) => write!(
+                f,
+                "unsupported bookmark file version {version:?}, expected \"BABELMARKS1\""
+            ),
+            BookmarkError::MissingNewline => write!(f, "header line has no terminating newline"),
+            BookmarkError::NotText => write!(f, "header line is not valid text"),
+            BookmarkError::WindowsLineEndings => write!(
+                f,
+                "file has Windows line endings (\\r\\n); save it with Unix line endings"
+            ),
+            BookmarkError::FieldCount { found } => write!(
+                f,
+                "header must have 3 fields, or 4 with a fingerprint, found {found}"
+            ),
+            BookmarkError::Field { expected, found } => {
+                write!(f, "expected header field {expected:?}, found {found:?}")
+            }
+            BookmarkError::Value { field, value } => {
+                write!(f, "invalid value {value:?} for header field {field:?}")
+            }
+            BookmarkError::MissingFingerprint => {
+                write!(f, "header says key=custom but has no fingerprint")
+            }
+            BookmarkError::UnexpectedFingerprint => {
+                write!(f, "header has a fingerprint but says key=canonical")
+            }
+        }
+    }
+}
+
+// No `source()`, for the same reason as `IndexFormatError`.
+impl Error for BookmarkError {}
