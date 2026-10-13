@@ -21,6 +21,15 @@ pub struct Session {
     scroll: usize,
     /// How many page lines fit on screen.
     viewport: usize,
+    status: Option<Status>,
+}
+
+/// A message for the status line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Status {
+    pub text: String,
+    /// Errors are drawn in red.
+    pub error: bool,
 }
 
 impl Session {
@@ -43,6 +52,7 @@ impl Session {
             lines: Vec::new(),
             scroll: 0,
             viewport,
+            status: None,
         };
         session.refresh_lines();
         Ok(session)
@@ -72,6 +82,47 @@ impl Session {
     /// The page as display lines.
     pub fn lines(&self) -> &[DisplayLine] {
         &self.lines
+    }
+
+    /// The message on the status line, if any.
+    pub fn status(&self) -> Option<&Status> {
+        self.status.as_ref()
+    }
+
+    /// Shows `text` on the status line as an error.
+    fn set_error(&mut self, text: impl Into<String>) {
+        self.status = Some(Status {
+            text: text.into(),
+            error: true,
+        });
+    }
+
+    /// Shows the page at `index`. The scroll goes back to the top and the status clears.
+    ///
+    /// # Errors
+    ///
+    /// [`LibraryError::LenMismatch`] if `index` is not this library's length. Nothing changes.
+    fn show(&mut self, index: PageIndex) -> Result<(), LibraryError> {
+        let page = self.cursor.jump(index)?;
+        self.page = page.bytes().to_vec();
+        self.status = None;
+        self.scroll = 0;
+        self.refresh_lines();
+        Ok(())
+    }
+
+    /// Goes to the next page or the one before it, wrapping at the ends.
+    pub fn step(&mut self, forward: bool) {
+        let mut index = self.cursor.index().clone();
+        if forward {
+            index.increment();
+        } else {
+            index.decrement();
+        }
+        // The new index has the old one's length, so this does not fail in practice.
+        if let Err(error) = self.show(index) {
+            self.set_error(error.to_string());
+        }
     }
 
     /// The first visible line.
@@ -209,5 +260,49 @@ mod test {
         session.set_viewport(100);
         assert_eq!(session.scroll(), 0);
         assert_eq!(session.viewport(), 100);
+    }
+
+    fn number(n: u64, len: usize) -> PageIndex {
+        PageIndex::from_u64(n, len)
+    }
+
+    #[test]
+    fn step_moves_by_one_and_wraps_at_both_ends() {
+        let mut session = session(LibraryConfig::SMALL);
+        session.step(true);
+        assert_eq!(session.index(), &number(1, 16));
+        session.step(false);
+        session.step(false);
+        assert_eq!(session.index(), &PageIndex::from_bytes(vec![0xff; 16]));
+        session.step(true);
+        assert_eq!(session.index(), &PageIndex::zero(16));
+    }
+
+    #[test]
+    fn step_shows_that_pages_bytes_and_resets_the_scroll() {
+        let mut session = session(LibraryConfig::MEDIUM);
+        session.scroll_by(10);
+        let before = session.page().to_vec();
+        session.step(true);
+        let library = bitbabel_core::BabelLibrary::canonical(LibraryConfig::MEDIUM).unwrap();
+        let expected = library.page_at(&number(1, 3200)).unwrap();
+        assert_eq!(session.page(), expected.bytes());
+        assert_ne!(session.page(), before);
+        assert_eq!(session.scroll(), 0);
+    }
+
+    #[test]
+    fn step_clears_a_status_message() {
+        let mut session = session(LibraryConfig::SMALL);
+        session.set_error("bad");
+        assert_eq!(
+            session.status(),
+            Some(&Status {
+                text: "bad".to_string(),
+                error: true
+            })
+        );
+        session.step(true);
+        assert!(session.status().is_none());
     }
 }

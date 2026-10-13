@@ -43,8 +43,21 @@ pub fn draw(frame: &mut Frame, area: Rect, session: &Session) {
     frame.render_widget(Line::raw(index_line(session.index(), size)), index_row);
     frame.render_widget(Line::raw(address_line(session.index(), size)), address_row);
     draw_page(frame, page_area, session);
+    frame.render_widget(status_line(session), status_row);
     frame.render_widget(
-        Line::styled(
+        Line::styled(keymap::hints(), Style::new().add_modifier(Modifier::DIM)),
+        hint_row,
+    );
+}
+
+/// The message if there is one (red for an error), else `ok · line 3/50`.
+fn status_line(session: &Session) -> Line<'static> {
+    match session.status() {
+        Some(status) if status.error => {
+            Line::styled(status.text.clone(), Style::new().fg(Color::Red))
+        }
+        Some(status) => Line::raw(status.text.clone()),
+        None => Line::styled(
             format!(
                 "ok · line {}/{}",
                 session.scroll() + 1,
@@ -52,12 +65,7 @@ pub fn draw(frame: &mut Frame, area: Rect, session: &Session) {
             ),
             Style::new().add_modifier(Modifier::DIM),
         ),
-        status_row,
-    );
-    frame.render_widget(
-        Line::styled(keymap::hints(), Style::new().add_modifier(Modifier::DIM)),
-        hint_row,
-    );
+    }
 }
 
 /// The page lines that fit, each with its offset in the gutter.
