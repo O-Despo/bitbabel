@@ -10,11 +10,44 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bitbabel_core::{FINGERPRINT_LEN, Key, LibraryConfig};
+use bitbabel_core::{FINGERPRINT_LEN, Key, LibraryConfig, LibraryError};
 use bitbabel_file::{BookmarkError, BookmarkFile, BookmarkKey, BookmarkSettings};
 
 use crate::app::{LibraryChoice, fingerprint_groups};
 use crate::files::Files;
+
+/// The longest file name the title bar shows, the rest cut off with `…`. The title has room
+/// for the library name (up to 42 characters) and `locked: ` and the count beside it.
+const TITLE_NAME_CHARS: usize = 16;
+
+/// Whether the session has a bookmark file. Once it has, the library is the file's and cannot
+/// change for the rest of the session.
+#[derive(Debug, Clone)]
+pub enum Bookmarks {
+    /// No file. Nothing is saved.
+    Free,
+    /// Bound to one file.
+    Locked(LockedBookmarks),
+}
+
+impl Bookmarks {
+    /// The text on the right of the title bar: `no bookmark file`, or `locked: favs (12)`.
+    pub fn title(&self) -> String {
+        match self {
+            Bookmarks::Free => "no bookmark file".to_string(),
+            Bookmarks::Locked(locked) => {
+                let name = locked.name();
+                let name = if name.chars().count() > TITLE_NAME_CHARS {
+                    let kept: String = name.chars().take(TITLE_NAME_CHARS - 1).collect();
+                    format!("{kept}…")
+                } else {
+                    name
+                };
+                format!("locked: {name} ({})", locked.file().bookmarks().len())
+            }
+        }
+    }
+}
 
 /// A bookmark file that is open, and where it came from.
 #[derive(Debug, Clone)]
@@ -87,6 +120,12 @@ impl LockedBookmarks {
         Ok((library, locked))
     }
 
+    /// The file's name without its extension: `favs` for `dir/favs.babelbookmark`.
+    pub fn name(&self) -> String {
+        let stem = self.path.file_stem().unwrap_or(self.path.as_os_str());
+        stem.to_string_lossy().into_owned()
+    }
+
     /// Where the file is.
     pub fn path(&self) -> &Path {
         &self.path
@@ -135,6 +174,9 @@ pub enum StartError {
     },
     /// The file is for the canonical library, so a key would put the session in another one.
     KeyForCanonical(PathBuf),
+    /// The file's library could not be built. The presets always can be, so this is not
+    /// expected.
+    Library { path: PathBuf, error: LibraryError },
 }
 
 impl fmt::Display for StartError {
@@ -170,6 +212,9 @@ impl fmt::Display for StartError {
                 fingerprint_groups(file),
                 fingerprint_groups(given)
             ),
+            StartError::Library { path, error } => {
+                write!(f, "cannot open the library of {}: {error}", path.display())
+            }
             StartError::KeyForCanonical(path) => write!(
                 f,
                 "{} is a canonical library, but a key was given \

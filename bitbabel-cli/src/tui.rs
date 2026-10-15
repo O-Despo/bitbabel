@@ -1,6 +1,7 @@
 //! `bitbabel tui`: the terminal explorer.
 
 use std::io::{IsTerminal, stdin, stdout};
+use std::path::PathBuf;
 
 use bitbabel_core::LibraryConfig;
 use bitbabel_tui::TuiConfig;
@@ -15,6 +16,11 @@ pub struct TuiArgs {
     /// Library size: small, medium or large [default: ask]
     #[arg(long, value_name = "SIZE")]
     size: Option<LibraryConfig>,
+
+    /// Open a bookmark file. The session uses its library: a --size or key given with it must
+    /// match, and what is left out is taken from the file
+    #[arg(long, value_name = "PATH")]
+    bookmarks: Option<PathBuf>,
 
     #[command(flatten)]
     key: KeyArgs,
@@ -33,6 +39,7 @@ pub fn run(args: TuiArgs) -> Result<(), CliError> {
     let config = TuiConfig {
         size: args.size,
         key: args.key.load()?,
+        bookmarks: args.bookmarks,
     };
     bitbabel_tui::run(config)?;
     Ok(())

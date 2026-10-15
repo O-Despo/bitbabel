@@ -352,8 +352,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(files));
+        let mut app = App::new(config, fake_random, Box::new(files)).unwrap();
         app.handle_key(press(KeyCode::Char('x')));
         type_text(&mut app, name);
         app
@@ -365,8 +366,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files.clone())));
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files.clone()))).unwrap();
         app.handle_key(press(KeyCode::Char('l')));
         app.handle_key(press(KeyCode::Char('x')));
         type_text(&mut app, "idx.txt");
@@ -408,10 +410,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::MEDIUM),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(SharedFiles(files)),
-        );
+        )
+        .unwrap();
         app.handle_key(press(KeyCode::Char('l')));
         let saved = index_of(&app);
 
@@ -437,10 +441,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(files),
-        );
+        )
+        .unwrap();
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('g')));
         type_text(&mut app, "short.txt");
@@ -463,10 +469,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(files),
-        );
+        )
+        .unwrap();
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('g')));
         type_text(&mut app, "seven.txt");

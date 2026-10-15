@@ -48,8 +48,9 @@ fn exploring(size: LibraryConfig) -> App {
     let config = TuiConfig {
         size: Some(size),
         key: None,
+        bookmarks: None,
     };
-    App::new(config, fake_random, Box::new(MemFiles::default()))
+    App::new(config, fake_random, Box::new(MemFiles::default())).unwrap()
 }
 
 /// A key press with no modifiers.

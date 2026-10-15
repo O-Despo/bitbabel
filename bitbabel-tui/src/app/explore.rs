@@ -207,8 +207,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default())).unwrap();
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('r')));
         assert_eq!(index_of(&app), start);

@@ -26,7 +26,7 @@ pub fn draw(frame: &mut Frame, area: Rect, session: &Session) {
             session.library().label(),
             session.view().name()
         ))
-        .title(Line::from(" no bookmark file ").right_aligned());
+        .title(Line::from(format!(" {} ", session.bookmarks().title())).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
