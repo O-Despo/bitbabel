@@ -16,7 +16,7 @@ mod viewport;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
-pub use library::{LibraryChoice, fingerprint_text};
+pub use library::{LibraryChoice, fingerprint_groups, fingerprint_text};
 pub use prompt::Prompt;
 pub use search::{RESULTS, SearchForm};
 pub use session::Session;

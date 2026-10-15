@@ -1,7 +1,9 @@
 //! Which library the session is in. It is shown in every mode, because the same index in
 //! another library is a different page and a wrong key gives no error.
 
-use bitbabel_core::{BabelLibrary, Encoding, Hex, Key, LibraryConfig, LibraryError};
+use bitbabel_core::{
+    BabelLibrary, Encoding, FINGERPRINT_LEN, Hex, Key, LibraryConfig, LibraryError,
+};
 
 /// A size and a key: the pair that names one library.
 #[derive(Debug, Clone)]
@@ -51,7 +53,13 @@ impl LibraryChoice {
 
 /// A key's fingerprint as 16 hex characters in groups of four: `3f9a-1c07-e2b8-4d10`.
 pub fn fingerprint_text(key: &Key) -> String {
-    let hex: Vec<char> = Hex::encode(&key.fingerprint()).chars().collect();
+    fingerprint_groups(&key.fingerprint())
+}
+
+/// Fingerprint bytes as 16 hex characters in groups of four. A bookmark file holds these bytes
+/// without the key they came from.
+pub fn fingerprint_groups(fingerprint: &[u8; FINGERPRINT_LEN]) -> String {
+    let hex: Vec<char> = Hex::encode(fingerprint).chars().collect();
     let groups: Vec<String> = hex.chunks(4).map(|group| group.iter().collect()).collect();
     groups.join("-")
 }
