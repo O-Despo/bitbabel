@@ -4,6 +4,7 @@
 
 mod app;
 mod bookmarks;
+mod clock;
 mod config;
 mod error;
 mod files;
@@ -17,7 +18,7 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event};
 
 use app::{App, Effect};
-pub use bookmarks::{LockedBookmarks, StartError};
+pub use bookmarks::{LockedBookmarks, SaveError, StartError};
 pub use config::TuiConfig;
 pub use error::TuiError;
 pub use files::{Files, StdFiles};

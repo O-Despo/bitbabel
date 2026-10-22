@@ -2,6 +2,8 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use std::sync::Arc;
+
 use super::{App, Mode};
 use crate::config::TuiConfig;
 use crate::files::{Files, MemFiles};
@@ -104,4 +106,32 @@ impl<F: Files> Files for SharedFiles<F> {
     fn write_replace(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
         self.0.write_replace(path, bytes)
     }
+}
+
+/// The bookmark file of the apps made by [`bookmarked_app`].
+pub const MARKS: &str = "marks.babelbookmark";
+
+/// A bookmark file for the small canonical library with no bookmarks in it.
+pub fn empty_marks() -> Vec<u8> {
+    use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+    let settings = BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Canonical).unwrap();
+    BookmarkFile::new(settings).to_bytes()
+}
+
+/// The time every [`bookmarked_app`] reads.
+pub fn fixed_now() -> u64 {
+    1_790_000_000
+}
+
+/// An app locked to [`MARKS`] in `files`, which must hold the file. The test keeps its own
+/// handle on `files` to look at what was written.
+pub fn bookmarked_app<F: Files + 'static>(files: Arc<F>) -> App {
+    let config = TuiConfig {
+        size: None,
+        key: None,
+        bookmarks: Some(MARKS.into()),
+    };
+    App::new(config, fake_random, Box::new(SharedFiles(files)))
+        .unwrap()
+        .with_clock(fixed_now)
 }

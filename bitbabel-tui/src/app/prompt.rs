@@ -7,9 +7,13 @@ use std::path::Path;
 use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
+use bitbabel_file::{MAX_LABEL_CHARS, is_label_char};
+
 use super::effect::Effect;
 use super::session::Session;
 use super::{App, Mode, typed_char};
+use crate::bookmarks::Bookmarks;
+use crate::clock::NowFn;
 use crate::files::Files;
 
 /// What a prompt asks for.
@@ -19,6 +23,8 @@ pub enum PromptKind {
     GoTo,
     /// A new file to save the current index in.
     Export,
+    /// The label of a new bookmark.
+    Bookmark,
 }
 
 /// An open prompt.
@@ -48,6 +54,7 @@ impl Prompt {
         match self.kind {
             PromptKind::GoTo => "go to",
             PromptKind::Export => "export index",
+            PromptKind::Bookmark => "bookmark",
         }
     }
 
@@ -56,6 +63,7 @@ impl Prompt {
         match self.kind {
             PromptKind::GoTo => "file holding the index (hex or base64):",
             PromptKind::Export => "save the index to a new file:",
+            PromptKind::Bookmark => "label for this page (may be empty):",
         }
     }
 
@@ -77,7 +85,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     };
     match key.code {
         KeyCode::Esc => session.close_prompt(),
-        KeyCode::Enter => submit(session, app.files.as_ref()),
+        KeyCode::Enter => submit(session, app.files.as_ref(), app.now),
         KeyCode::Backspace => {
             if let Some(prompt) = session.prompt_mut() {
                 prompt.input.pop();
@@ -86,8 +94,13 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         }
         _ => {
             if let (Some(c), Some(prompt)) = (typed_char(&key), session.prompt_mut()) {
-                prompt.input.push(c);
-                prompt.error = None;
+                // A label box only takes what a label may hold, so what is typed is valid.
+                let refused = prompt.kind == PromptKind::Bookmark
+                    && (!is_label_char(c) || prompt.input.chars().count() >= MAX_LABEL_CHARS);
+                if !refused {
+                    prompt.input.push(c);
+                    prompt.error = None;
+                }
             }
         }
     }
@@ -95,13 +108,35 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
 }
 
 /// Enter: do what the prompt asks. A failure stays in the prompt as an inline error.
-fn submit(session: &mut Session, files: &dyn Files) {
+fn submit(session: &mut Session, files: &dyn Files, now: NowFn) {
     let Some(prompt) = session.prompt() else {
         return;
     };
     match prompt.kind {
         PromptKind::GoTo => go_to(session, files),
         PromptKind::Export => export(session, files),
+        PromptKind::Bookmark => add_bookmark(session, files, now()),
+    }
+}
+
+/// Adds a bookmark for the current page, labelled with what was typed, and saves the file.
+/// A problem stays in the prompt, which stays open.
+fn add_bookmark(session: &mut Session, files: &dyn Files, now: u64) {
+    let label = session
+        .prompt()
+        .map(|prompt| prompt.input.clone())
+        .unwrap_or_default();
+    let index = session.index().clone();
+    let Bookmarks::Locked(locked) = session.bookmarks_mut() else {
+        session.set_prompt_error("no bookmark file");
+        return;
+    };
+    match locked.add(files, now, &label, index) {
+        Ok(count) => {
+            session.close_prompt();
+            session.set_status(format!("bookmarked ({count})"));
+        }
+        Err(error) => session.set_prompt_error(error.to_string()),
     }
 }
 
@@ -482,5 +517,158 @@ mod test {
         assert_eq!(index_of(&app), bitbabel_core::PageIndex::from_u64(7, 16));
         app.handle_key(press(KeyCode::Left));
         assert_eq!(index_of(&app), start);
+    }
+    fn marks_in(bytes: Vec<u8>) -> bitbabel_file::BookmarkFile {
+        bitbabel_file::BookmarkFile::from_bytes(&bytes).unwrap()
+    }
+
+    fn open_prompt_error(app: &App) -> Option<String> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt().and_then(|p| p.error().map(str::to_string))
+    }
+
+    fn prompt_is_open(app: &App) -> bool {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt().is_some()
+    }
+
+    fn marked_files() -> std::sync::Arc<MemFiles> {
+        std::sync::Arc::new(MemFiles::default().with(MARKS, &empty_marks()))
+    }
+
+    #[test]
+    fn b_asks_for_a_label_then_saves_the_page_with_the_time() {
+        let files = marked_files();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        assert!(prompt_is_open(&app));
+        type_text(&mut app, "looks like a word");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert!(!prompt_is_open(&app));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (1)");
+        let saved = marks_in(files.get(MARKS).unwrap());
+        let mark = &saved.bookmarks()[0];
+        assert_eq!(mark.label(), "looks like a word");
+        assert_eq!(mark.time(), fixed_now());
+        assert_eq!(mark.index(), &index_of(&app));
+    }
+
+    #[test]
+    fn an_empty_label_is_fine_and_a_second_page_makes_two() {
+        let files = marked_files();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "next");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (2)");
+        let saved = marks_in(files.get(MARKS).unwrap());
+        assert_eq!(saved.bookmarks().len(), 2);
+        assert_eq!(saved.bookmarks()[0].label(), "");
+    }
+
+    #[test]
+    fn bookmarking_a_page_twice_is_refused_and_names_the_first_label() {
+        let files = marked_files();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "first");
+        app.handle_key(press(KeyCode::Enter));
+        let before = files.get(MARKS).unwrap();
+
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "again");
+        app.handle_key(press(KeyCode::Enter));
+        assert!(prompt_is_open(&app));
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "this page is already bookmarked as \"first\""
+        );
+        assert_eq!(files.get(MARKS).unwrap(), before);
+    }
+
+    #[test]
+    fn esc_cancels_and_writes_nothing() {
+        let files = marked_files();
+        let before = files.get(MARKS).unwrap();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "never saved");
+        app.handle_key(press(KeyCode::Esc));
+        assert!(!prompt_is_open(&app));
+        assert_eq!(files.get(MARKS).unwrap(), before);
+    }
+
+    #[test]
+    fn the_label_box_ignores_characters_a_label_cannot_hold_and_stops_at_200() {
+        let mut app = bookmarked_app(marked_files());
+        app.handle_key(press(KeyCode::Char('b')));
+        // A zero-width space and an escape are ignored; other keys still type.
+        type_text(&mut app, "a\u{200b}b\u{1b}c");
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input(), "abc");
+
+        type_text(&mut app, &"x".repeat(300));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input().chars().count(), 200);
+    }
+
+    #[test]
+    fn a_failed_write_is_an_inline_error_and_leaves_the_list_as_it_was() {
+        let files =
+            std::sync::Arc::new(crate::files::FailingFiles::default().with(MARKS, &empty_marks()));
+        let mut app = bookmarked_app(files.clone());
+        files.fail_writes(true);
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "kept");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert!(prompt_is_open(&app));
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "cannot save marks.babelbookmark: No space left on device"
+        );
+        assert_eq!(files.get(MARKS).unwrap(), empty_marks());
+
+        // Once the disk works again the same Enter saves it: one bookmark, not a duplicate
+        // error, because the failed attempt was rolled back.
+        files.fail_writes(false);
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (1)");
+        assert_eq!(marks_in(files.get(MARKS).unwrap()).bookmarks().len(), 1);
+    }
+
+    #[test]
+    fn b_without_a_bookmark_file_says_how_to_get_one() {
+        let mut app = small_app();
+        app.handle_key(press(KeyCode::Char('b')));
+        assert!(!prompt_is_open(&app));
+        let status = status_of(&app).unwrap();
+        assert!(status.error);
+        assert_eq!(status.text, "no bookmark file: start with --bookmarks FILE");
+    }
+
+    #[test]
+    fn b_is_text_inside_a_prompt() {
+        let mut app = bookmarked_app(marked_files());
+        app.handle_key(press(KeyCode::Char('g')));
+        app.handle_key(press(KeyCode::Char('b')));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input(), "b");
+        assert_eq!(session.prompt().unwrap().title(), "go to");
     }
 }

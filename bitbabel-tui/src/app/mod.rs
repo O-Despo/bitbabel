@@ -23,6 +23,7 @@ pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
 use crate::bookmarks::{Bookmarks, LockedBookmarks, StartError};
+use crate::clock::{NowFn, system_now};
 use crate::config::TuiConfig;
 use crate::files::Files;
 use crate::keymap;
@@ -69,6 +70,7 @@ pub struct App {
     /// How many page lines fit on screen.
     viewport: usize,
     random: RandomFn,
+    now: NowFn,
     files: Box<dyn Files>,
 }
 
@@ -102,6 +104,7 @@ impl App {
                 mode: Mode::Explore(Box::new(session)),
                 viewport,
                 random,
+                now: system_now,
                 files,
             });
         }
@@ -123,8 +126,17 @@ impl App {
             mode,
             viewport,
             random,
+            now: system_now,
             files,
         })
+    }
+
+    /// The same app with another clock. The app reads the time from the system unless a test
+    /// replaces it.
+    #[cfg(test)]
+    pub(crate) fn with_clock(mut self, now: NowFn) -> Self {
+        self.now = now;
+        self
     }
 
     /// Tells the app how tall the terminal is, so the page knows how many lines fit. Called

@@ -94,6 +94,10 @@ impl Session {
         &self.bookmarks
     }
 
+    pub(super) fn bookmarks_mut(&mut self) -> &mut Bookmarks {
+        &mut self.bookmarks
+    }
+
     /// Binds the session to a bookmark file.
     pub(super) fn set_bookmarks(&mut self, bookmarks: Bookmarks) {
         self.bookmarks = bookmarks;

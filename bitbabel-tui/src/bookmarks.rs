@@ -10,7 +10,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bitbabel_core::{FINGERPRINT_LEN, Key, LibraryConfig, LibraryError};
+use bitbabel_core::{FINGERPRINT_LEN, Key, LibraryConfig, LibraryError, PageIndex};
 use bitbabel_file::{BookmarkError, BookmarkFile, BookmarkKey, BookmarkSettings};
 
 use crate::app::{LibraryChoice, fingerprint_groups};
@@ -120,6 +120,45 @@ impl LockedBookmarks {
         Ok((library, locked))
     }
 
+    /// Adds a bookmark for `index` and writes the whole file. Returns how many bookmarks the
+    /// file has now. `time` is unix seconds.
+    ///
+    /// The file is written before the change is kept: if the write fails, the list is as it
+    /// was, so what is on screen is always what is on disk.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`] if the index is already bookmarked, the file is full, the label is
+    /// refused, or the file could not be written.
+    pub fn add(
+        &mut self,
+        files: &dyn Files,
+        time: u64,
+        label: &str,
+        index: PageIndex,
+    ) -> Result<usize, SaveError> {
+        if let Some(at) = self.file.find(&index) {
+            let existing = self.file.bookmarks()[at].label().to_string();
+            return Err(SaveError::Duplicate { label: existing });
+        }
+        self.file
+            .push(time, label, index)
+            .map_err(|error| match error {
+                BookmarkError::TooManyBookmarks { max } => SaveError::Full { max },
+                other => SaveError::Refused(other),
+            })?;
+        let count = self.file.bookmarks().len();
+        if let Err(error) = files.write_replace(&self.path, &self.file.to_bytes()) {
+            // The bookmark just added is the last one, so this cannot be out of range.
+            let _ = self.file.remove(count - 1);
+            return Err(SaveError::Write {
+                path: self.path.clone(),
+                error,
+            });
+        }
+        Ok(count)
+    }
+
     /// The file's name without its extension: `favs` for `dir/favs.babelbookmark`.
     pub fn name(&self) -> String {
         let stem = self.path.file_stem().unwrap_or(self.path.as_os_str());
@@ -145,6 +184,41 @@ fn largest_file() -> usize {
     // `LARGE` is a preset, so this cannot be an error; the fallback is a generous number.
     largest.map_or(128 << 20, |settings| BookmarkFile::max_bytes(&settings))
 }
+
+/// Why a bookmark could not be added. Every one of these is shown inline and the session
+/// carries on.
+#[derive(Debug)]
+pub enum SaveError {
+    /// The page is already bookmarked, under `label`.
+    Duplicate { label: String },
+    /// The file holds as many bookmarks as it may.
+    Full { max: usize },
+    /// The file crate refused the bookmark. The label prompt only takes valid characters, so
+    /// this is not expected.
+    Refused(BookmarkError),
+    /// The file could not be written. The list was left as it was.
+    Write { path: PathBuf, error: io::Error },
+}
+
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaveError::Duplicate { label } if label.is_empty() => {
+                write!(f, "this page is already bookmarked (with no label)")
+            }
+            SaveError::Duplicate { label } => {
+                write!(f, "this page is already bookmarked as \"{label}\"")
+            }
+            SaveError::Full { max } => write!(f, "the file already has {max} bookmarks"),
+            SaveError::Refused(error) => write!(f, "{error}"),
+            SaveError::Write { path, error } => {
+                write!(f, "cannot save {}: {error}", path.display())
+            }
+        }
+    }
+}
+
+impl Error for SaveError {}
 
 /// Why a bookmark file could not be opened at startup. All of these are fatal: there is no
 /// library to start in.

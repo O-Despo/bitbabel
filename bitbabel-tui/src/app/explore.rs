@@ -7,6 +7,7 @@ use super::effect::Effect;
 use super::prompt::{self, PromptKind};
 use super::search;
 use super::{App, Mode};
+use crate::bookmarks::Bookmarks;
 use crate::keymap::{self, Action};
 
 /// Handles a key press in [`Mode::Explore`].
@@ -50,6 +51,13 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Export => session.open_prompt(PromptKind::Export),
         Action::CycleView => session.cycle_view(),
         Action::Search => session.open_search(),
+        Action::AddBookmark => {
+            if matches!(session.bookmarks(), Bookmarks::Locked(_)) {
+                session.open_prompt(PromptKind::Bookmark);
+            } else {
+                session.set_error("no bookmark file: start with --bookmarks FILE");
+            }
+        }
         Action::NextResult => search::step_result(session, true),
         Action::PrevResult => search::step_result(session, false),
         Action::Random => {}
