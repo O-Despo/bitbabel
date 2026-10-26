@@ -70,8 +70,8 @@ impl BookmarkList {
 }
 
 /// Handles a key while the list is open. ↑/↓ and `j`/`k` move the selection, `enter` opens
-/// the selected page and closes the list, `esc` and `q` close it. Any other key does
-/// nothing: `r` and `d` will be the list's rename and delete, not the explore keys (§13.3b).
+/// the selected page and closes the list, `r` renames it, `esc` and `q` close. Any other key
+/// does nothing: `r` and `d` are the list's rename and delete, not the explore keys (§13.3b).
 pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     // Ctrl and Alt combos neither type nor command here, as in the other screens.
     if key
@@ -88,9 +88,27 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         KeyCode::Down | KeyCode::Char('j') => session.move_bookmark_selection(true),
         KeyCode::Esc | KeyCode::Char('q') => session.close_bookmark_list(),
         KeyCode::Enter => visit_selected(session),
+        KeyCode::Char('r') => rename_selected(session),
         _ => {}
     }
     vec![]
+}
+
+/// Opens the rename prompt over the list, prefilled with the selected row's label. An empty
+/// list has nothing to rename, so `r` does nothing (§13.3b).
+fn rename_selected(session: &mut Session) {
+    let old_label = match session.bookmarks() {
+        Bookmarks::Locked(locked) => locked
+            .file()
+            .bookmarks()
+            .get(session.bookmark_list().selected())
+            .map(|mark| mark.label().to_string()),
+        Bookmarks::Free => None,
+    };
+    if let Some(old_label) = old_label {
+        let at = session.bookmark_list().selected();
+        session.open_rename_prompt(at, &old_label);
+    }
 }
 
 /// Opens the selected bookmark's page — a visit, so `←` comes back to it — and closes the
@@ -118,29 +136,17 @@ mod test {
     use std::sync::Arc;
 
     use bitbabel_core::{LibraryConfig, PageIndex};
-    use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
     use ratatui::crossterm::event::KeyCode;
 
     use super::*;
+    use crate::app::Prompt;
     use crate::app::test_util::*;
-    use crate::files::MemFiles;
+    use crate::files::{FailingFiles, MemFiles};
 
-    /// A small canonical file with `count` bookmarks, a minute apart and labelled.
-    fn marks_bytes(count: usize) -> Vec<u8> {
-        let settings = BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Canonical).unwrap();
-        let mut file = BookmarkFile::new(settings);
-        for n in 0..count {
-            let index = PageIndex::from_u64(n as u64 + 1, LibraryConfig::SMALL.page_len());
-            file.push(1_790_812_800 + (n as u64) * 60, &format!("mark {n}"), index)
-                .unwrap();
-        }
-        file.to_bytes()
-    }
+    const SMALL: LibraryConfig = LibraryConfig::SMALL;
 
-    /// An app locked to [`MARKS`] with `count` bookmarks.
     fn marks_app(count: usize) -> App {
-        let files = Arc::new(MemFiles::default().with(MARKS, &marks_bytes(count)));
-        bookmarked_app(files)
+        marks_app_with_files(SMALL, count).0
     }
 
     fn session_of(app: &App) -> &Session {
@@ -160,6 +166,10 @@ mod test {
 
     fn top_of(app: &App) -> usize {
         session_of(app).bookmark_list().top()
+    }
+
+    fn prompt_of(app: &App) -> &Prompt {
+        session_of(app).prompt().expect("a prompt should be open")
     }
 
     #[test]
@@ -242,11 +252,12 @@ mod test {
 
     #[test]
     fn list_keys_do_not_fall_through_to_the_explore_table() {
-        // `r` will be rename and `e` inside the list must not mean random or a view change.
+        // `e` must not cycle the view, `l` must not step a page, while the list is open.
+        // (`r` is the list's rename now, tested separately.)
         let mut app = marks_app(2);
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('B')));
-        for c in ['r', 'e', 'l', 'x', 'h', 'n'] {
+        for c in ['e', 'l', 'x', 'h', 'n'] {
             app.handle_key(press(KeyCode::Char(c)));
         }
         assert_eq!(index_of(&app), start);
@@ -288,5 +299,110 @@ mod test {
         assert!(list_is_open(&app));
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(app.handle_key(ctrl_c), vec![Effect::Quit]);
+    }
+
+    #[test]
+    fn r_opens_the_rename_prompt_prefilled_with_the_row_label() {
+        let mut app = marks_app(2);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('j')));
+        app.handle_key(press(KeyCode::Char('r')));
+        let prompt = prompt_of(&app);
+        assert_eq!(prompt.title(), "rename");
+        assert_eq!(prompt.input(), "mark 1");
+        assert!(prompt.label().contains("bookmark 2"), "{}", prompt.label());
+        assert_eq!(prompt.footer(), "enter save   esc back");
+        assert!(!list_is_open(&app));
+    }
+
+    #[test]
+    fn esc_on_the_rename_returns_to_the_list_with_the_selection_kept() {
+        let mut app = marks_app(2);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('j')));
+        app.handle_key(press(KeyCode::Char('r')));
+        app.handle_key(press(KeyCode::Esc));
+        assert!(list_is_open(&app));
+        assert_eq!(selected_of(&app), 1);
+    }
+
+    #[test]
+    fn a_rename_writes_the_new_label_and_time_and_index_stay() {
+        let files = Arc::new(MemFiles::default().with(MARKS, &marks_bytes(SMALL, 2)));
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('r')));
+        for _ in 0..6 {
+            app.handle_key(press(KeyCode::Backspace));
+        }
+        type_text(&mut app, "kept");
+        app.handle_key(press(KeyCode::Enter));
+        // Back to the list, prompt gone.
+        assert!(list_is_open(&app));
+        assert!(session_of(&app).prompt().is_none());
+        let on_disk = String::from_utf8(files.get(MARKS).unwrap()).unwrap();
+        // Same time and index, new label.
+        assert!(on_disk.contains("1790812800\tkept\t"), "{on_disk}");
+        assert!(!on_disk.contains("mark 0"), "{on_disk}");
+    }
+
+    #[test]
+    fn the_rename_box_refuses_characters_a_label_cannot_hold() {
+        // The same filter as the bookmark label: a control character typed here would
+        // otherwise only fail when the file is written (§13.3b).
+        let mut app = marks_app(1);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('r')));
+        let before = prompt_of(&app).input().to_string();
+        app.handle_key(press(KeyCode::Char('\t')));
+        app.handle_key(press(KeyCode::Char('\u{200b}')));
+        assert_eq!(prompt_of(&app).input(), before);
+    }
+
+    #[test]
+    fn an_empty_rename_is_allowed() {
+        let files = Arc::new(MemFiles::default().with(MARKS, &marks_bytes(SMALL, 1)));
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('r')));
+        for _ in 0..6 {
+            app.handle_key(press(KeyCode::Backspace));
+        }
+        app.handle_key(press(KeyCode::Enter));
+        assert!(list_is_open(&app));
+        let on_disk = String::from_utf8(files.get(MARKS).unwrap()).unwrap();
+        assert!(
+            on_disk.ends_with("\t\tAAAAAAAAAAAAAAAAAAAAAQ==\n"),
+            "{on_disk}"
+        );
+    }
+
+    #[test]
+    fn a_failed_write_keeps_the_prompt_open_and_the_list_unchanged() {
+        let files = Arc::new(FailingFiles::default().with(MARKS, &marks_bytes(SMALL, 2)));
+        files.fail_writes(true);
+        let config = crate::config::TuiConfig {
+            size: None,
+            key: None,
+            bookmarks: Some(MARKS.into()),
+        };
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files)))
+            .unwrap()
+            .with_clock(fixed_now);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('r')));
+        type_text(&mut app, "!");
+        app.handle_key(press(KeyCode::Enter));
+        // Still the prompt, with the reason in it, and what was typed kept.
+        let prompt = prompt_of(&app);
+        assert!(
+            prompt.error().unwrap().contains("cannot save"),
+            "{prompt:?}"
+        );
+        assert_eq!(prompt.input(), "mark 0!");
+        // Esc returns to the list; nothing was renamed.
+        app.handle_key(press(KeyCode::Esc));
+        assert!(list_is_open(&app));
+        assert_eq!(session_of(&app).bookmark_count(), 2);
     }
 }

@@ -63,7 +63,7 @@ mod test {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
-    use crate::app::test_util::fake_random;
+    use crate::app::test_util::{fake_random, marks_app};
     use crate::config::TuiConfig;
     use crate::files::MemFiles;
     use bitbabel_core::LibraryConfig;
@@ -480,22 +480,6 @@ mod test {
         assert!(render(&app, 80, 24).contains("✗ taken.txt already exists, choose another name"));
     }
 
-    /// A locked app of `size` with `count` labelled marks, one minute apart.
-    fn marks_app(size: LibraryConfig, count: usize) -> App {
-        use crate::app::test_util::{MARKS, bookmarked_app};
-        use bitbabel_core::PageIndex;
-        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
-        let settings = BookmarkSettings::new(size, BookmarkKey::Canonical).unwrap();
-        let mut file = BookmarkFile::new(settings);
-        for n in 0..count {
-            let index = PageIndex::from_u64(n as u64 + 1, size.page_len());
-            file.push(1_790_812_800 + (n as u64) * 60, &format!("mark {n}"), index)
-                .unwrap();
-        }
-        let files = std::sync::Arc::new(MemFiles::default().with(MARKS, &file.to_bytes()));
-        bookmarked_app(files)
-    }
-
     #[test]
     fn the_bookmark_list_is_drawn_over_the_page_and_holds_the_selection() {
         use ratatui::style::Modifier;
@@ -510,7 +494,10 @@ mod test {
         );
         assert!(screen.contains("1  2026-10-01 00:00Z  mark 0"), "{screen}");
         assert!(screen.contains("3  2026-10-01 00:02Z  mark 2"), "{screen}");
-        assert!(screen.contains("enter open   esc close"), "{screen}");
+        assert!(
+            screen.contains("enter open   r rename   esc close"),
+            "{screen}"
+        );
         // The whole base64 of the small index is shown, not a shortened one.
         let index0 = bitbabel_core::PageIndex::from_u64(1, 16).to_base64();
         assert!(screen.contains(index0.as_str()), "{screen}");

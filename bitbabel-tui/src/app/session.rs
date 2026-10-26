@@ -128,6 +128,12 @@ impl Session {
         self.overlay = Overlay::Bookmarks;
     }
 
+    /// Opens the rename prompt over the `B` list, prefilled with row `at`'s label. The list
+    /// state stays on the session, so Enter or Esc returns to it (§13.3b).
+    pub fn open_rename_prompt(&mut self, at: usize, old: &str) {
+        self.overlay = Overlay::Prompt(Prompt::renaming(at, old));
+    }
+
     /// Closes the `B` list. The selection stays where it was for the next time.
     pub fn close_bookmark_list(&mut self) {
         if matches!(self.overlay, Overlay::Bookmarks) {

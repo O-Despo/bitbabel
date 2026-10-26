@@ -28,6 +28,8 @@ pub enum PromptKind {
     /// The file to keep bookmarks in, asked for the first time a session bookmarks a page. The
     /// label comes next, and nothing is written until that is confirmed.
     BookmarkFile,
+    /// A new label for an existing bookmark, opened from the `B` list over the list itself.
+    BookmarkRename,
 }
 
 /// What the first bookmark of a session carries from the file step to the label step.
@@ -53,6 +55,8 @@ pub struct Prompt {
     /// Set on the label step of the first bookmark, where the file has been chosen but not
     /// written.
     pending: Option<Pending>,
+    /// The row the rename prompt edits, `Some` only for [`PromptKind::BookmarkRename`].
+    rename_at: Option<usize>,
 }
 
 impl Prompt {
@@ -62,7 +66,26 @@ impl Prompt {
             input: String::new(),
             error: None,
             pending: None,
+            rename_at: None,
         }
+    }
+
+    /// The rename prompt for row `at`, prefilled with its old label (§13.3b). The old label
+    /// is made of valid characters, so it needs no filtering.
+    pub(super) fn renaming(at: usize, old: &str) -> Self {
+        Prompt {
+            kind: PromptKind::BookmarkRename,
+            input: old.to_string(),
+            error: None,
+            pending: None,
+            rename_at: Some(at),
+        }
+    }
+
+    /// Whether this box only accepts characters a label may hold: the bookmark label and
+    /// its rename. A new kind that forgets this method silently skips the filter (§13.3b).
+    fn is_label_box(&self) -> bool {
+        matches!(self.kind, PromptKind::Bookmark | PromptKind::BookmarkRename)
     }
 
     pub(super) fn set_error(&mut self, message: impl Into<String>) {
@@ -76,6 +99,7 @@ impl Prompt {
             PromptKind::Export => "export index",
             PromptKind::Bookmark => "bookmark",
             PromptKind::BookmarkFile => "bookmark file",
+            PromptKind::BookmarkRename => "rename",
         }
     }
 
@@ -92,6 +116,10 @@ impl Prompt {
                 pending.path.display()
             ),
             (PromptKind::Bookmark, None) => "label for this page (may be empty):".to_string(),
+            (PromptKind::BookmarkRename, _) => match self.rename_at {
+                Some(at) => format!("new label for bookmark {} (may be empty):", at + 1),
+                None => "new label for this bookmark (may be empty):".to_string(),
+            },
         }
     }
 
@@ -99,7 +127,11 @@ impl Prompt {
     pub fn footer(&self) -> &'static str {
         match (&self.kind, &self.pending) {
             (PromptKind::BookmarkFile, _) => "enter next   esc cancel",
-            (PromptKind::Bookmark, Some(_)) => "enter save   esc back",
+            // Both a first bookmark's label and a rename can step back: to the file step,
+            // or to the list.
+            (PromptKind::Bookmark, Some(_)) | (PromptKind::BookmarkRename, _) => {
+                "enter save   esc back"
+            }
             _ => "enter confirm   esc cancel",
         }
     }
@@ -122,8 +154,15 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     };
     match key.code {
         KeyCode::Esc => {
+            let renaming = session
+                .prompt()
+                .is_some_and(|prompt| prompt.kind == PromptKind::BookmarkRename);
             if !step_back(session) {
                 session.close_prompt();
+                // Esc on a rename goes back to the list it opened over (§13.3b).
+                if renaming {
+                    session.open_bookmark_list();
+                }
             }
         }
         KeyCode::Enter => submit(session, app.files.as_ref(), app.now),
@@ -136,7 +175,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         _ => {
             if let (Some(c), Some(prompt)) = (typed_char(&key), session.prompt_mut()) {
                 // A label box only takes what a label may hold, so what is typed is valid.
-                let refused = prompt.kind == PromptKind::Bookmark
+                let refused = prompt.is_label_box()
                     && (!is_label_char(c) || prompt.input.chars().count() >= MAX_LABEL_CHARS);
                 if !refused {
                     prompt.input.push(c);
@@ -179,6 +218,7 @@ fn submit(session: &mut Session, files: &dyn Files, now: NowFn) {
         PromptKind::Export => export(session, files),
         PromptKind::Bookmark => add_bookmark(session, files, now()),
         PromptKind::BookmarkFile => choose_bookmark_file(session, files),
+        PromptKind::BookmarkRename => rename_bookmark(session, files),
     }
 }
 
@@ -204,6 +244,27 @@ fn add_bookmark(session: &mut Session, files: &dyn Files, now: u64) {
             session.close_prompt();
             session.set_status(format!("bookmarked ({count})"));
         }
+        Err(error) => session.set_prompt_error(error.to_string()),
+    }
+}
+
+/// The rename prompt's Enter: apply the label to a copy, write the file, and only then
+/// return to the list, which shows the new label (§13.3b). A failure keeps the prompt open
+/// with the inline error, over the unchanged list state.
+fn rename_bookmark(session: &mut Session, files: &dyn Files) {
+    let Some(prompt) = session.prompt() else {
+        return;
+    };
+    let Some(at) = prompt.rename_at else {
+        return;
+    };
+    let label = prompt.input.clone();
+    let Bookmarks::Locked(locked) = session.bookmarks_mut() else {
+        session.set_prompt_error("no bookmark file");
+        return;
+    };
+    match locked.rename(files, at, &label) {
+        Ok(()) => session.open_bookmark_list(),
         Err(error) => session.set_prompt_error(error.to_string()),
     }
 }
