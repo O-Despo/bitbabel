@@ -59,7 +59,8 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Search => session.open_search(),
         Action::AddBookmark => {
             if matches!(session.bookmarks(), Bookmarks::Locked(_)) {
-                session.open_prompt(PromptKind::Bookmark);
+                let prefill = prompt::bookmark_prefill(session);
+                session.open_prompt_prefilled(PromptKind::Bookmark, prefill);
             } else {
                 session.open_prompt(PromptKind::BookmarkFile);
             }

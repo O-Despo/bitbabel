@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 
 use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::text::Span;
 
 use bitbabel_file::{BookmarkFile, MAX_LABEL_CHARS, is_label_char};
 
 use super::effect::Effect;
+use super::search::SearchForm;
 use super::session::Session;
 use super::{App, Mode, typed_char};
 use crate::bookmarks::{Bookmarks, LockedBookmarks, library_mismatch};
@@ -79,6 +81,17 @@ impl Prompt {
             error: None,
             pending: None,
             rename_at: Some(at),
+        }
+    }
+
+    /// A prompt with `text` already typed in the box (§13.3b prefill).
+    pub(super) fn with_input(kind: PromptKind, text: String) -> Self {
+        Prompt {
+            kind,
+            input: text,
+            error: None,
+            pending: None,
+            rename_at: None,
         }
     }
 
@@ -222,6 +235,33 @@ fn submit(session: &mut Session, files: &dyn Files, now: NowFn) {
     }
 }
 
+/// The text a new bookmark's label box starts with: `search: <needle>` when the open page
+/// is a result of the search still showing, and the library is canonical (§13.3a, review
+/// finding 4: the file is not secret, so in a private-key session the label would tell
+/// anyone what was searched). Characters a label cannot hold are dropped, and the text is
+/// cut at 60 terminal cells. Empty for any other page — then the box opens empty.
+pub(crate) fn bookmark_prefill(session: &Session) -> String {
+    if session.highlight().is_none() || !session.library().is_canonical() {
+        return String::new();
+    }
+    let Some(needle) = session.search_form().and_then(SearchForm::opened_needle) else {
+        return String::new();
+    };
+    const PREFIX: &str = "search: ";
+    const MAX_CELLS: usize = 60;
+    let mut text = String::from(PREFIX);
+    let mut width = Span::raw(PREFIX).width();
+    for c in needle.chars().filter(|c| is_label_char(*c)) {
+        let cells = Span::raw(c.to_string()).width();
+        if width + cells > MAX_CELLS {
+            break;
+        }
+        width += cells;
+        text.push(c);
+    }
+    text
+}
+
 /// Adds a bookmark for the current page, labelled with what was typed, and saves the file.
 /// On the label step of a first bookmark this also creates or opens the file and locks the
 /// session to it. A problem stays in the prompt, which stays open.
@@ -334,15 +374,22 @@ fn choose_bookmark_file(session: &mut Session, files: &dyn Files) {
             return session.set_prompt_error(message);
         }
     };
+    // The label step keeps a stepped-back label; where there is nothing to keep, the search
+    // prefill starts it (§13.3b). The file step is never prefilled.
+    let label = if earlier_label.is_empty() {
+        bookmark_prefill(session)
+    } else {
+        earlier_label
+    };
     if let Some(prompt) = session.prompt_mut() {
         prompt.kind = PromptKind::Bookmark;
-        prompt.input = earlier_label.clone();
+        prompt.input = label.clone();
         prompt.error = None;
         prompt.pending = Some(Pending {
             path,
             path_text: typed,
             existing,
-            label: earlier_label,
+            label,
         });
     }
 }
@@ -1167,5 +1214,155 @@ mod test {
             open_prompt_error(&app).unwrap(),
             "pub.babelbookmark is a canonical library, but this session uses a private key"
         );
+    }
+
+    /// Opens `needle` as a search and the first result of it, leaving the session on that
+    /// page with the match marked.
+    fn open_first_hit(app: &mut App, needle: &str) {
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(app, needle);
+        app.handle_key(press(KeyCode::Enter)); // search
+        app.handle_key(press(KeyCode::Enter)); // open the selected row
+    }
+
+    #[test]
+    fn b_after_opening_a_search_result_prefills_the_label() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        open_first_hit(&mut app, "hello");
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "search: hello");
+    }
+
+    #[test]
+    fn the_prefill_saves_as_it_stands_and_can_be_cleared() {
+        let files = std::sync::Arc::new(
+            MemFiles::default().with(MARKS, &marks_bytes(LibraryConfig::SMALL, 0)),
+        );
+        let mut app = bookmarked_app(files.clone());
+        open_first_hit(&mut app, "hi");
+        app.handle_key(press(KeyCode::Char('b')));
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (1)");
+        let on_disk = String::from_utf8(files.get(MARKS).unwrap()).unwrap();
+        assert!(on_disk.contains("\tsearch: hi\t"), "{on_disk}");
+
+        // A second page, the label cleared to empty, still bookmarks.
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert!(prompt_of(&app).unwrap().input().is_empty());
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (2)");
+    }
+
+    #[test]
+    fn a_private_library_never_prefills_the_label() {
+        use bitbabel_core::Key;
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let key = Key::from_bytes([1; 32]);
+        let settings =
+            BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Custom(key.fingerprint()))
+                .unwrap();
+        let bytes = BookmarkFile::new(settings).to_bytes();
+        let files = MemFiles::default().with(MARKS, &bytes);
+        let config = TuiConfig {
+            size: None,
+            key: Some(key),
+            bookmarks: Some(MARKS.into()),
+        };
+        let mut app = App::new(config, fake_random, Box::new(files))
+            .unwrap()
+            .with_clock(fixed_now);
+        open_first_hit(&mut app, "hi");
+        app.handle_key(press(KeyCode::Char('b')));
+        // The highlight is set and a needle exists — but the key is private: the file is
+        // not secret, and the label would say what was searched (§13.3a, finding 4).
+        assert_eq!(prompt_of(&app).unwrap().input(), "");
+    }
+
+    #[test]
+    fn a_search_the_page_does_not_answer_to_leaves_the_label_empty() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        open_first_hit(&mut app, "hi");
+        // Search again WITHOUT opening a result: the page on screen still answers to the
+        // old needle, so nothing is safe to prefill (§13.3b).
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "x"); // stale: Enter searches again instead of opening
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "");
+    }
+
+    #[test]
+    fn a_plain_page_never_prefills_the_label() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "");
+    }
+
+    #[test]
+    fn the_free_label_step_prefills_and_the_file_step_never_does() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+            bookmarks: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files)))
+            .unwrap()
+            .with_clock(fixed_now);
+        open_first_hit(&mut app, "hi");
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "bookmark file");
+        assert!(
+            prompt_of(&app).unwrap().input().is_empty(),
+            "file step: never prefilled"
+        );
+        type_text(&mut app, "favs");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(prompt_of(&app).unwrap().title(), "bookmark");
+        assert_eq!(prompt_of(&app).unwrap().input(), "search: hi");
+    }
+
+    #[test]
+    fn the_prefill_drops_characters_a_label_cannot_hold() {
+        // The utf8 view takes a needle as it is typed, invisible ones included (§13.3b).
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        for _ in 0..3 {
+            app.handle_key(press(KeyCode::Char('e'))); // text, hex, base64, utf8
+        }
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "a\u{200b}b");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "search: ab");
+    }
+
+    #[test]
+    fn the_prefill_is_cut_at_60_terminal_cells() {
+        let mut app = marks_app(LibraryConfig::MEDIUM, 0);
+        open_first_hit(&mut app, &"a".repeat(100));
+        app.handle_key(press(KeyCode::Char('b')));
+        let input = prompt_of(&app).unwrap().input().to_string();
+        assert_eq!(input, format!("search: {}", "a".repeat(52)));
+        assert_eq!(Span::raw(&input).width(), 60);
+    }
+
+    #[test]
+    fn wide_needle_characters_are_counted_as_two_cells() {
+        let mut app = marks_app(LibraryConfig::MEDIUM, 0);
+        for _ in 0..3 {
+            app.handle_key(press(KeyCode::Char('e'))); // utf8
+        }
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, &"日".repeat(40)); // 120 bytes
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Char('b')));
+        let input = prompt_of(&app).unwrap().input().to_string();
+        assert_eq!(Span::raw(&input).width(), 60);
+        assert_eq!(input, format!("search: {}", "日".repeat(26)));
     }
 }

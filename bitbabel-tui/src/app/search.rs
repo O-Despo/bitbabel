@@ -130,6 +130,16 @@ impl SearchForm {
     fn set_error(&mut self, message: impl Into<String>) {
         self.error = Some(message.into());
     }
+
+    /// The needle text of the results a hit was opened from: `Some` while the page on screen
+    /// answers to these results. A new search makes it `None` again until one of its hits is
+    /// opened, so the label prefill never names a needle the page does not hold (§13.3b).
+    pub fn opened_needle(&self) -> Option<&str> {
+        match (self.last_opened, &self.searched) {
+            (Some(_), Some((text, _))) => Some(text.as_str()),
+            _ => None,
+        }
+    }
 }
 
 /// Handles a key while the search overlay is open.

@@ -31,6 +31,12 @@ impl LibraryChoice {
         self.key.as_ref()
     }
 
+    /// Whether this is the canonical library: everyone sees its pages, so a bookmark label
+    /// there names no secret (§13.3a, review finding 4).
+    pub fn is_canonical(&self) -> bool {
+        self.key.is_none()
+    }
+
     /// The bookmark file settings that name this library: its size, and `Canonical` or the
     /// private key's fingerprint.
     ///

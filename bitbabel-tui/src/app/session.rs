@@ -217,6 +217,12 @@ impl Session {
         self.overlay = Overlay::Prompt(Prompt::new(kind));
     }
 
+    /// Opens a prompt with `text` already typed in its box — the label prefill of `b`, which
+    /// the user can edit or clear before pressing Enter (§13.3b).
+    pub fn open_prompt_prefilled(&mut self, kind: PromptKind, text: String) {
+        self.overlay = Overlay::Prompt(Prompt::with_input(kind, text));
+    }
+
     /// Closes the open prompt, if one is open.
     pub fn close_prompt(&mut self) {
         if matches!(self.overlay, Overlay::Prompt(_)) {
@@ -346,8 +352,8 @@ impl Session {
             .go_line(line.saturating_sub(1), self.lines.len());
     }
 
-    /// The bytes marked on the page, if any.
-    #[cfg(test)]
+    /// The bytes marked on the page, if any. `Some` means the open page came from a search
+    /// result; any page change clears it.
     pub fn highlight(&self) -> Option<&Range<usize>> {
         self.highlight.as_ref()
     }
