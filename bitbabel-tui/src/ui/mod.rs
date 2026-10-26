@@ -90,15 +90,18 @@ mod test {
             TuiConfig::default(),
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let explore = App::new(
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         for app in [setup, explore] {
             assert!(render(&app, 79, 24).contains("terminal too small (need 80x24, have 79x24)"));
             assert!(render(&app, 80, 23).contains("terminal too small (need 80x24, have 80x23)"));
@@ -112,10 +115,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::MEDIUM),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let screen = render(&app, 80, 24);
         let title = screen.lines().next().unwrap();
         assert!(title.contains("medium · canonical"));
@@ -128,7 +133,8 @@ mod test {
             TuiConfig::default(),
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let screen = render(&app, 80, 24);
         for text in [
             "small (16 B)",
@@ -147,7 +153,8 @@ mod test {
             TuiConfig::default(),
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         assert!(render(&app, 60, 20).contains("too small"));
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(render(&app, 120, 40).contains("medium · canonical"));
@@ -156,7 +163,7 @@ mod test {
     #[test]
     fn setup_shows_the_key_file_check_inline() {
         let files = MemFiles::default().with("my.key", &[1; 32]);
-        let mut app = App::new(TuiConfig::default(), fake_random, Box::new(files));
+        let mut app = App::new(TuiConfig::default(), fake_random, Box::new(files)).unwrap();
         let press = |app: &mut App, code| {
             app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
         };
@@ -183,10 +190,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: Some(bitbabel_core::Key::from_bytes([1; 32])),
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let screen = render(&app, 80, 24);
         assert!(
             screen
@@ -203,10 +212,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let screen = render(&app, 80, 24);
         let rows: Vec<&str> = screen.lines().collect();
         assert!(rows[0].contains("small · canonical · text"));
@@ -226,10 +237,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::MEDIUM),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let screen = render(&app, 80, 24);
         let rows: Vec<&str> = screen.lines().collect();
         // 24 rows less the border, index, address, status and hint rows.
@@ -244,10 +257,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::new(15, 8)),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let screen = render(&app, 80, 24);
         assert!(screen.contains("✗ page length must be even and non-zero, got 15"));
         assert!(!screen.contains("enter start"));
@@ -259,10 +274,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::MEDIUM),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let press = |app: &mut App, code| {
             app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
         };
@@ -287,10 +304,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::MEDIUM),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         app.set_terminal_height(30);
         let screen = render(&app, 80, 30);
         // Count rows that start with a gutter offset.
@@ -305,16 +324,111 @@ mod test {
         assert_eq!(session.viewport(), 24);
     }
 
+    /// An app locked to a bookmark file called `name`, for a private key, with `count`
+    /// bookmarks.
+    fn locked_app(name: &str, count: u64) -> App {
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let key = bitbabel_core::Key::from_bytes([1; 32]);
+        let settings =
+            BookmarkSettings::new(LibraryConfig::LARGE, BookmarkKey::Custom(key.fingerprint()))
+                .unwrap();
+        let mut file = BookmarkFile::new(settings);
+        for n in 1..=count {
+            let index = bitbabel_core::PageIndex::from_u64(n, LibraryConfig::LARGE.page_len());
+            file.push(n, "", index).unwrap();
+        }
+        let files = MemFiles::default().with(name, &file.to_bytes());
+        let config = TuiConfig {
+            size: None,
+            key: Some(key),
+            bookmarks: Some(name.into()),
+        };
+        App::new(config, fake_random, Box::new(files)).unwrap()
+    }
+
+    #[test]
+    fn the_title_says_there_is_no_bookmark_file_or_names_the_locked_one() {
+        let free = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+                bookmarks: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        )
+        .unwrap();
+        assert!(
+            render(&free, 80, 24)
+                .lines()
+                .next()
+                .unwrap()
+                .contains("no bookmark file")
+        );
+
+        let locked = render(&locked_app("favs.babelbookmark", 3), 80, 24);
+        let title = locked.lines().next().unwrap();
+        assert!(title.contains("large · key a576-7c85-fdef-3c24"), "{title}");
+        assert!(title.contains("locked: favs (3)"), "{title}");
+    }
+
+    #[test]
+    fn a_long_file_name_is_cut_so_the_whole_title_fits_in_80_columns() {
+        // The widest title: a private key, the longest view name, a long file name, 4 digits.
+        let mut app = locked_app("a-very-long-bookmark-file-name.babelbookmark", 1);
+        for _ in 0..2 {
+            app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        }
+        let screen = render(&app, 80, 24);
+        let title = screen.lines().next().unwrap();
+        assert!(title.contains("locked: a-very-long-boo… (1)"), "{title}");
+        assert!(title.contains("large · key a576-7c85-fdef-3c24"), "{title}");
+        assert!(title.contains("base64"), "{title}");
+    }
+
+    #[test]
+    fn the_first_bookmark_asks_for_a_file_then_a_label_that_says_it_locks_the_session() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+                bookmarks: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        )
+        .unwrap();
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_key(key('b'));
+        for c in "my-long-folder/favourites".chars() {
+            app.handle_key(key(c));
+        }
+        let file_step = render(&app, 80, 24);
+        assert!(file_step.contains("bookmark file"));
+        assert!(file_step.contains("keep bookmarks in which file?"));
+        assert!(file_step.contains("> my-long-folder/favourites"));
+        assert!(file_step.contains("enter next   esc cancel"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        // The long label question wraps inside the box instead of being cut off.
+        let label_step = render(&app, 80, 24);
+        assert!(label_step.contains("my-long-folder/favourites.babelbookmark"));
+        assert!(label_step.contains("session to this library"));
+        assert!(label_step.contains("enter save   esc back"));
+    }
+
     #[test]
     fn the_help_screen_lists_every_key_from_the_key_map() {
         let mut app = App::new(
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let page = render(&app, 80, 24);
         assert!(!page.contains("any key closes"));
         // The hint bar says where the help is.
@@ -340,10 +454,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(files),
-        );
+        )
+        .unwrap();
         let press = |app: &mut App, code| {
             app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
         };
@@ -366,10 +482,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let press = |app: &mut App, code| {
             app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
         };
@@ -457,10 +575,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let press = |app: &mut App, code| {
             app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
         };
@@ -479,10 +599,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let press = |app: &mut App, code| {
             app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
         };

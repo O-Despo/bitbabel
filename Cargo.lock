@@ -156,6 +156,7 @@ name = "bitbabel-tui"
 version = "0.1.0"
 dependencies = [
  "bitbabel-core",
+ "bitbabel-file",
  "getrandom 0.4.3",
  "ratatui",
 ]

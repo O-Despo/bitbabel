@@ -4,12 +4,12 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use crate::app::Prompt;
 
 const WIDTH: u16 = 60;
-const HEIGHT: u16 = 7;
+const HEIGHT: u16 = 9;
 
 /// Draws `prompt` in a box in the middle of `area`.
 pub fn draw(frame: &mut Frame, area: Rect, prompt: &Prompt) {
@@ -28,12 +28,13 @@ pub fn draw(frame: &mut Frame, area: Rect, prompt: &Prompt) {
         Line::raw(prompt.label()),
         Line::raw(format!("> {}▏", prompt.input())),
         error,
-        Line::styled(
-            "enter confirm   esc cancel",
-            Style::new().add_modifier(Modifier::DIM),
-        ),
+        Line::styled(prompt.footer(), Style::new().add_modifier(Modifier::DIM)),
     ];
     let block = Block::bordered().title(format!(" {} ", prompt.title()));
     frame.render_widget(Clear, area);
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    // Long labels and messages wrap onto the lines the box has room for.
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
 }

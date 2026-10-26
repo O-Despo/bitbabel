@@ -28,6 +28,7 @@ mod pad;
 
 pub use bookmarks::{
     Bookmark, BookmarkFile, BookmarkKey, BookmarkSettings, MAX_BOOKMARKS, MAX_LABEL_CHARS,
+    is_label_char,
 };
 pub use error::{BookmarkError, FileError, HeaderError, IndexFormatError, LineError, PadError};
 pub use file::BabelFile;

@@ -1,6 +1,7 @@
 //! What the CLI hands to [`run`](crate::run).
 
 use std::fmt;
+use std::path::PathBuf;
 
 use bitbabel_core::{Key, LibraryConfig};
 
@@ -12,6 +13,9 @@ pub struct TuiConfig {
     pub size: Option<LibraryConfig>,
     /// The private key, or `None` for the canonical library.
     pub key: Option<Key>,
+    /// A bookmark file to open. The session is locked to its library: a size or key given
+    /// with it must match the file, and what is left out is taken from it.
+    pub bookmarks: Option<PathBuf>,
 }
 
 // Hand-written to keep the `Key` out of the output (it prints as `<redacted>` anyway).
@@ -20,6 +24,7 @@ impl fmt::Debug for TuiConfig {
         f.debug_struct("TuiConfig")
             .field("size", &self.size)
             .field("key", &self.key)
+            .field("bookmarks", &self.bookmarks)
             .finish()
     }
 }
@@ -33,6 +38,7 @@ mod test {
         let config = TuiConfig::default();
         assert!(config.size.is_none());
         assert!(config.key.is_none());
+        assert!(config.bookmarks.is_none());
     }
 
     #[test]
@@ -40,6 +46,7 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: Some(Key::from_bytes([0x77; 32])),
+            bookmarks: None,
         };
         let shown = format!("{config:?}");
         assert!(shown.contains("redacted"));

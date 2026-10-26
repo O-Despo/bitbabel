@@ -16,12 +16,14 @@ mod viewport;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use effect::Effect;
-pub use library::{LibraryChoice, fingerprint_text};
+pub use library::{LibraryChoice, fingerprint_groups, fingerprint_text};
 pub use prompt::Prompt;
 pub use search::{RESULTS, SearchForm};
 pub use session::Session;
 pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
 
+use crate::bookmarks::{Bookmarks, LockedBookmarks, StartError};
+use crate::clock::{NowFn, system_now};
 use crate::config::TuiConfig;
 use crate::files::Files;
 use crate::keymap;
@@ -68,15 +70,44 @@ pub struct App {
     /// How many page lines fit on screen.
     viewport: usize,
     random: RandomFn,
+    now: NowFn,
     files: Box<dyn Files>,
 }
 
 impl App {
-    /// A new app. With a size it starts exploring that library (canonical unless there is
-    /// a key); without one it opens the setup screen. `random` is where every random byte
+    /// A new app. With a bookmark file it starts exploring that file's library, locked to
+    /// it. Otherwise, with a size it starts exploring that library (canonical unless there is
+    /// a key), and without one it opens the setup screen. `random` is where every random byte
     /// comes from, and `files` is how it reads files.
-    pub fn new(config: TuiConfig, random: RandomFn, files: Box<dyn Files>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`StartError`] if a bookmark file was given and cannot be used: it is missing or
+    /// invalid, or a size or key given with it does not match. There is no library to start in
+    /// then, so this is fatal.
+    pub fn new(
+        config: TuiConfig,
+        random: RandomFn,
+        files: Box<dyn Files>,
+    ) -> Result<Self, StartError> {
         let viewport = viewport_for(DEFAULT_HEIGHT);
+        if let Some(path) = &config.bookmarks {
+            let (library, locked) =
+                LockedBookmarks::open(files.as_ref(), path, config.size, config.key)?;
+            let mut session =
+                Session::new(library, viewport).map_err(|error| StartError::Library {
+                    path: path.clone(),
+                    error,
+                })?;
+            session.set_bookmarks(Bookmarks::Locked(locked));
+            return Ok(App {
+                mode: Mode::Explore(Box::new(session)),
+                viewport,
+                random,
+                now: system_now,
+                files,
+            });
+        }
         let mut form = SetupForm::new(config.key.clone());
         let mode = match config.size {
             None => Mode::Setup(form),
@@ -91,12 +122,21 @@ impl App {
                 }
             },
         };
-        App {
+        Ok(App {
             mode,
             viewport,
             random,
+            now: system_now,
             files,
-        }
+        })
+    }
+
+    /// The same app with another clock. The app reads the time from the system unless a test
+    /// replaces it.
+    #[cfg(test)]
+    pub(crate) fn with_clock(mut self, now: NowFn) -> Self {
+        self.now = now;
+        self
     }
 
     /// Tells the app how tall the terminal is, so the page knows how many lines fit. Called
@@ -175,6 +215,77 @@ mod test {
     use super::*;
     use crate::files::MemFiles;
 
+    /// A bookmark file of `size` with `count` bookmarks, for the canonical key.
+    fn bookmark_bytes(size: LibraryConfig, count: u64) -> Vec<u8> {
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let settings = BookmarkSettings::new(size, BookmarkKey::Canonical).unwrap();
+        let mut file = BookmarkFile::new(settings);
+        for n in 1..=count {
+            let index = bitbabel_core::PageIndex::from_u64(n, size.page_len());
+            file.push(n, &format!("mark {n}"), index).unwrap();
+        }
+        file.to_bytes()
+    }
+
+    fn app_with_bookmarks(
+        bytes: &[u8],
+        size: Option<LibraryConfig>,
+    ) -> Result<App, crate::StartError> {
+        let files = MemFiles::default().with("dir/favs.babelbookmark", bytes);
+        let config = TuiConfig {
+            size,
+            key: None,
+            bookmarks: Some("dir/favs.babelbookmark".into()),
+        };
+        App::new(config, fake_random, Box::new(files))
+    }
+
+    #[test]
+    fn a_bookmark_file_starts_the_session_locked_to_its_library() {
+        let app = app_with_bookmarks(&bookmark_bytes(LibraryConfig::SMALL, 2), None).unwrap();
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.library().label(), "small · canonical");
+        assert_eq!(session.bookmarks().title(), "locked: favs (2)");
+    }
+
+    #[test]
+    fn a_session_without_a_bookmark_file_says_so() {
+        let app = small_app();
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.bookmarks().title(), "no bookmark file");
+    }
+
+    #[test]
+    fn a_bookmark_file_that_disagrees_with_the_flags_is_a_start_error() {
+        let bytes = bookmark_bytes(LibraryConfig::MEDIUM, 1);
+        let error = app_with_bookmarks(&bytes, Some(LibraryConfig::SMALL))
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("does not match"), "{error}");
+
+        let files = MemFiles::default();
+        let config = TuiConfig {
+            size: None,
+            key: None,
+            bookmarks: Some("nope.babelbookmark".into()),
+        };
+        let error = App::new(config, fake_random, Box::new(files))
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("cannot read nope.babelbookmark"));
+    }
+
+    #[test]
+    fn start_over_leaves_the_locked_session() {
+        let mut app = app_with_bookmarks(&bookmark_bytes(LibraryConfig::SMALL, 1), None).unwrap();
+        app.handle_key(press(KeyCode::Char('s')));
+        assert!(matches!(app.mode(), Mode::Setup(_)));
+    }
+
     #[test]
     fn q_quits_and_changes_nothing() {
         let mut app = small_app();
@@ -218,7 +329,8 @@ mod test {
             TuiConfig::default(),
             failing_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         assert_eq!(
             failing.random_bytes(3).unwrap_err(),
             RandomError::new("blocked")
@@ -239,8 +351,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::LARGE),
             key: Some(Key::from_bytes([1; 32])),
+            bookmarks: None,
         };
-        let app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let app = App::new(config, fake_random, Box::new(MemFiles::default())).unwrap();
         assert!(app.library().unwrap().key().is_some());
     }
 
@@ -250,7 +363,8 @@ mod test {
             TuiConfig::default(),
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         assert!(matches!(app.mode(), Mode::Setup(_)));
         assert!(app.library().is_none());
 
@@ -265,7 +379,8 @@ mod test {
             TuiConfig::default(),
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(app.handle_key(ctrl_c), [Effect::Quit]);
         assert_eq!(app.handle_key(press(KeyCode::Char('q'))), [Effect::Quit]);
@@ -286,7 +401,7 @@ mod test {
     #[test]
     fn a_key_file_from_the_setup_screen_names_the_library() {
         let files = MemFiles::default().with("my.key", &[9; 32]);
-        let mut app = App::new(TuiConfig::default(), fake_random, Box::new(files));
+        let mut app = App::new(TuiConfig::default(), fake_random, Box::new(files)).unwrap();
         let keys = [
             KeyCode::Down,
             KeyCode::Right,
@@ -315,8 +430,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: Some(Key::from_bytes([1; 32])),
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default())).unwrap();
         assert!(app.handle_key(press(KeyCode::Char('s'))).is_empty());
         assert!(app.library().is_none());
         let Mode::Setup(form) = app.mode() else {
@@ -340,8 +456,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::new(15, 8)),
             key: None,
+            bookmarks: None,
         };
-        let app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let app = App::new(config, fake_random, Box::new(MemFiles::default())).unwrap();
         let Mode::Setup(form) = app.mode() else {
             panic!("should fall back to the setup screen");
         };
@@ -356,8 +473,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::new(15, 8)),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default())).unwrap();
         app.handle_key(press(KeyCode::Down));
         let Mode::Setup(form) = app.mode() else {
             panic!("should still be on the setup screen");
@@ -379,7 +497,8 @@ mod test {
             TuiConfig::default(),
             fake_random,
             Box::new(MemFiles::default()),
-        );
+        )
+        .unwrap();
         app.set_terminal_height(40);
         app.handle_key(press(KeyCode::Enter));
         let Mode::Explore(session) = app.mode() else {

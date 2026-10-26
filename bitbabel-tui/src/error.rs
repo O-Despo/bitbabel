@@ -5,17 +5,23 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
+use crate::bookmarks::StartError;
+
 /// Why [`run`](crate::run) failed.
 #[derive(Debug)]
 pub enum TuiError {
     /// Setting up, drawing on or reading from the terminal failed.
     Terminal(io::Error),
+    /// The bookmark file given at startup could not be used. The message says why and what to
+    /// change.
+    Bookmarks(StartError),
 }
 
 impl fmt::Display for TuiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TuiError::Terminal(error) => write!(f, "terminal error: {error}"),
+            TuiError::Bookmarks(error) => write!(f, "{error}"),
         }
     }
 }
@@ -26,6 +32,12 @@ impl Error for TuiError {}
 impl From<io::Error> for TuiError {
     fn from(error: io::Error) -> Self {
         TuiError::Terminal(error)
+    }
+}
+
+impl From<StartError> for TuiError {
+    fn from(error: StartError) -> Self {
+        TuiError::Bookmarks(error)
     }
 }
 
