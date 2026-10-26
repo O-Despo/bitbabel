@@ -1,6 +1,7 @@
 //! All state and key handling. No drawing and no terminal: tests build an [`App`], feed it
 //! keys and check the state.
 
+mod bookmark_list;
 mod effect;
 mod explore;
 mod library;

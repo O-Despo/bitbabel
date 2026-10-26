@@ -37,15 +37,20 @@ impl Bookmarks {
             Bookmarks::Free => "no bookmark file".to_string(),
             Bookmarks::Locked(locked) => {
                 let name = locked.name();
-                let name = if name.chars().count() > TITLE_NAME_CHARS {
-                    let kept: String = name.chars().take(TITLE_NAME_CHARS - 1).collect();
-                    format!("{kept}…")
-                } else {
-                    name
-                };
-                format!("locked: {name} ({})", locked.file().bookmarks().len())
+                format!("locked: {} ({})", short_name(&name), locked.count())
             }
         }
+    }
+}
+
+/// The file name as a title shows it: [`TITLE_NAME_CHARS`] characters at most, the rest cut
+/// off with `…`. Shared by the title bar and the `B` list box.
+pub(crate) fn short_name(name: &str) -> String {
+    if name.chars().count() > TITLE_NAME_CHARS {
+        let kept: String = name.chars().take(TITLE_NAME_CHARS - 1).collect();
+        format!("{kept}…")
+    } else {
+        name.to_string()
     }
 }
 
@@ -216,6 +221,11 @@ impl LockedBookmarks {
     /// The bookmarks in it.
     pub fn file(&self) -> &BookmarkFile {
         &self.file
+    }
+
+    /// How many bookmarks the file holds.
+    pub fn count(&self) -> usize {
+        self.file.bookmarks().len()
     }
 }
 

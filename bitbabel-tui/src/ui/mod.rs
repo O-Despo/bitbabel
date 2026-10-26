@@ -1,5 +1,6 @@
 //! Drawing only. It reads the [`App`] and never changes it.
 
+mod bookmarks;
 mod explore;
 mod help;
 mod prompt;
@@ -36,6 +37,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
             {
                 let size = session.library().size();
                 search::draw(frame, area, form, session.view(), size);
+            }
+            if session.bookmark_list_is_open() {
+                bookmarks::draw(frame, area, session);
             }
             if session.help_is_open() {
                 help::draw(frame, area);
@@ -474,6 +478,75 @@ mod test {
 
         press(&mut app, KeyCode::Enter);
         assert!(render(&app, 80, 24).contains("✗ taken.txt already exists, choose another name"));
+    }
+
+    /// A locked app of `size` with `count` labelled marks, one minute apart.
+    fn marks_app(size: LibraryConfig, count: usize) -> App {
+        use crate::app::test_util::{MARKS, bookmarked_app};
+        use bitbabel_core::PageIndex;
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let settings = BookmarkSettings::new(size, BookmarkKey::Canonical).unwrap();
+        let mut file = BookmarkFile::new(settings);
+        for n in 0..count {
+            let index = PageIndex::from_u64(n as u64 + 1, size.page_len());
+            file.push(1_790_812_800 + (n as u64) * 60, &format!("mark {n}"), index)
+                .unwrap();
+        }
+        let files = std::sync::Arc::new(MemFiles::default().with(MARKS, &file.to_bytes()));
+        bookmarked_app(files)
+    }
+
+    #[test]
+    fn the_bookmark_list_is_drawn_over_the_page_and_holds_the_selection() {
+        use ratatui::style::Modifier;
+
+        let mut app = marks_app(LibraryConfig::SMALL, 3);
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_key(key('B'));
+        let screen = render(&app, 80, 24);
+        assert!(
+            screen.contains("bookmarks · marks · small · canonical"),
+            "{screen}"
+        );
+        assert!(screen.contains("1  2026-10-01 00:00Z  mark 0"), "{screen}");
+        assert!(screen.contains("3  2026-10-01 00:02Z  mark 2"), "{screen}");
+        assert!(screen.contains("enter open   esc close"), "{screen}");
+        // The whole base64 of the small index is shown, not a shortened one.
+        let index0 = bitbabel_core::PageIndex::from_u64(1, 16).to_base64();
+        assert!(screen.contains(index0.as_str()), "{screen}");
+
+        // The first row is reversed; j moves the reversal down.
+        let selected_reversed = |app: &App, marker: &str| {
+            let row = row_with(app, marker);
+            cells(app, 80, 24)[(4, row)]
+                .modifier
+                .contains(Modifier::REVERSED)
+        };
+        assert!(selected_reversed(&app, "mark 0"));
+        app.handle_key(key('j'));
+        assert!(selected_reversed(&app, "mark 1"));
+    }
+
+    #[test]
+    fn the_medium_list_shortens_the_index_like_the_search_rows() {
+        let mut app = marks_app(LibraryConfig::MEDIUM, 2);
+        app.handle_key(KeyEvent::new(KeyCode::Char('B'), KeyModifiers::NONE));
+        let screen = render(&app, 80, 24);
+        let whole = bitbabel_core::PageIndex::from_u64(1, 3200).to_base64();
+        assert!(!screen.contains(whole.as_str()), "the whole index leaked");
+        let head: String = whole.chars().take(12).collect();
+        let tail: String = whole.chars().skip(whole.len() - 12).collect();
+        assert!(
+            screen.contains(format!("{head}…{tail}").as_str()),
+            "{screen}"
+        );
+    }
+
+    #[test]
+    fn an_empty_bookmark_list_says_so() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Char('B'), KeyModifiers::NONE));
+        assert!(render(&app, 80, 24).contains("no bookmarks"));
     }
 
     #[test]

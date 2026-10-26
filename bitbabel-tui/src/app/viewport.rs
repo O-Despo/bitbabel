@@ -22,7 +22,6 @@ impl Viewport {
     }
 
     /// How many lines fit on screen.
-    #[cfg(test)]
     pub fn rows(&self) -> usize {
         self.rows
     }

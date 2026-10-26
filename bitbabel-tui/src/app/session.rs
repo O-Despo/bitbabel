@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
+use super::bookmark_list::BookmarkList;
 use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
 use super::search::SearchForm;
@@ -31,6 +32,8 @@ pub struct Session {
     status: Option<Status>,
     /// What is open over the page, if anything.
     overlay: Overlay,
+    /// The `B` list's selection and window, kept while a prompt opens over the list.
+    bookmark_list: BookmarkList,
     bookmarks: Bookmarks,
     /// The search form. It keeps its needle and results when the overlay is closed.
     search: Option<SearchForm>,
@@ -49,6 +52,9 @@ enum Overlay {
     Search,
     /// The list of keys.
     Help,
+    /// The `B` list of bookmarks. Its state is kept on the session, not here: a prompt
+    /// opens over the list (§13.3b).
+    Bookmarks,
 }
 
 /// A message for the status line.
@@ -81,6 +87,7 @@ impl Session {
             history: History::new(first),
             status: None,
             overlay: Overlay::None,
+            bookmark_list: BookmarkList::default(),
             bookmarks: Bookmarks::Free,
             search: None,
             highlight: None,
@@ -101,6 +108,45 @@ impl Session {
     /// Binds the session to a bookmark file.
     pub(super) fn set_bookmarks(&mut self, bookmarks: Bookmarks) {
         self.bookmarks = bookmarks;
+    }
+
+    /// Whether the `B` bookmark list is showing.
+    pub fn bookmark_list_is_open(&self) -> bool {
+        matches!(self.overlay, Overlay::Bookmarks)
+    }
+
+    /// The list's selection and window, for drawing.
+    pub(crate) fn bookmark_list(&self) -> &BookmarkList {
+        &self.bookmark_list
+    }
+
+    /// Opens the `B` list, clamping the selection and the window inside the bookmarks the
+    /// session has.
+    pub fn open_bookmark_list(&mut self) {
+        self.bookmark_list
+            .fit(self.viewport.rows(), self.bookmark_count());
+        self.overlay = Overlay::Bookmarks;
+    }
+
+    /// Closes the `B` list. The selection stays where it was for the next time.
+    pub fn close_bookmark_list(&mut self) {
+        if matches!(self.overlay, Overlay::Bookmarks) {
+            self.overlay = Overlay::None;
+        }
+    }
+
+    /// How many bookmarks the list would show: the file's, or none without a file.
+    pub fn bookmark_count(&self) -> usize {
+        match &self.bookmarks {
+            Bookmarks::Locked(locked) => locked.count(),
+            Bookmarks::Free => 0,
+        }
+    }
+
+    /// Moves the list selection one row down or up, keeping it in view.
+    pub(crate) fn move_bookmark_selection(&mut self, down: bool) {
+        self.bookmark_list
+            .move_selected(down, self.viewport.rows(), self.bookmark_count());
     }
 
     /// The library of this session.
@@ -343,14 +389,16 @@ impl Session {
     }
 
     /// How many page lines fit on screen.
-    #[cfg(test)]
     pub fn viewport(&self) -> usize {
         self.viewport.rows()
     }
 
     /// Tells the session how many page lines fit on screen, and keeps the scroll inside.
+    /// The bookmark list gets the same number of rows, so its window stays usable while a
+    /// prompt is open over it.
     pub fn set_viewport(&mut self, rows: usize) {
         self.viewport.set_rows(rows, self.lines.len());
+        self.bookmark_list.fit(rows, self.bookmark_count());
     }
 
     /// Scrolls by `lines` (negative is up), stopping at the first and last line.
