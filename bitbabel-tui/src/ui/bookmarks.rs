@@ -74,7 +74,7 @@ pub fn draw(frame: &mut Frame, area: Rect, session: &Session) {
         lines.push(Line::raw(""));
     }
     lines.push(Line::styled(
-        "enter open   r rename   esc close",
+        "enter open   r rename   d delete   esc close",
         Style::new().add_modifier(Modifier::DIM),
     ));
 

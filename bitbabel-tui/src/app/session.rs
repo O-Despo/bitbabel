@@ -9,7 +9,8 @@ use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
 use super::search::SearchForm;
 use super::viewport::Viewport;
-use crate::bookmarks::Bookmarks;
+use crate::bookmarks::{Bookmarks, SaveError};
+use crate::files::Files;
 use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
@@ -153,6 +154,16 @@ impl Session {
     pub(crate) fn move_bookmark_selection(&mut self, down: bool) {
         self.bookmark_list
             .move_selected(down, self.viewport.rows(), self.bookmark_count());
+    }
+
+    /// Deletes the selected bookmark of the `B` list, writing its file. Without a file it
+    /// does nothing; the list never opens without one.
+    pub(crate) fn delete_selected_bookmark(&mut self, files: &dyn Files) -> Result<(), SaveError> {
+        let at = self.bookmark_list.selected();
+        let Bookmarks::Locked(locked) = &mut self.bookmarks else {
+            return Ok(());
+        };
+        locked.remove(files, at)
     }
 
     /// The library of this session.

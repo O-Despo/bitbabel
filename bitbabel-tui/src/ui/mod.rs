@@ -495,7 +495,7 @@ mod test {
         assert!(screen.contains("1  2026-10-01 00:00Z  mark 0"), "{screen}");
         assert!(screen.contains("3  2026-10-01 00:02Z  mark 2"), "{screen}");
         assert!(
-            screen.contains("enter open   r rename   esc close"),
+            screen.contains("enter open   r rename   d delete   esc close"),
             "{screen}"
         );
         // The whole base64 of the small index is shown, not a shortened one.

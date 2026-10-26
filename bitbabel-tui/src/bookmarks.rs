@@ -224,6 +224,18 @@ impl LockedBookmarks {
         self.write_through(files, |file| file.rename(position, label))
     }
 
+    /// Removes the bookmark at `position` and writes the whole file, at once and without
+    /// asking again: the page is still reachable by its index (§13.3). Later bookmarks move
+    /// up by one. Like [`add`](Self::add), a failed write leaves the list as it was.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`] as for [`add`](Self::add): [`Refused`](SaveError::Refused) if there is
+    /// no bookmark at `position`.
+    pub fn remove(&mut self, files: &dyn Files, position: usize) -> Result<(), SaveError> {
+        self.write_through(files, |file| file.remove(position).map(|_| ()))
+    }
+
     /// The write-through pattern for a change of the list: apply it to a copy, write the
     /// copy, and only then swap it in — after every change the in-memory list is what is on
     /// disk.
@@ -714,5 +726,60 @@ mod test {
         ));
         assert_eq!(locked.file().bookmarks()[0].label(), "first");
         assert_eq!(files.get(PATH).unwrap(), bytes);
+    }
+
+    #[test]
+    fn a_remove_writes_the_shorter_list_through() {
+        // A file with two bookmarks.
+        let settings =
+            BookmarkSettings::new(LibraryConfig::MEDIUM, BookmarkKey::Canonical).unwrap();
+        let mut file = BookmarkFile::new(settings);
+        file.push(1, "gone", PageIndex::from_u64(1, 3200)).unwrap();
+        file.push(2, "kept", PageIndex::from_u64(2, 3200)).unwrap();
+        let files = MemFiles::default().with(PATH, &file.to_bytes());
+        let (_, mut locked) = LockedBookmarks::open(&files, Path::new(PATH), None, None).unwrap();
+        locked.remove(&files, 0).unwrap();
+        let labels: Vec<_> = locked
+            .file()
+            .bookmarks()
+            .iter()
+            .map(|mark| mark.label())
+            .collect();
+        assert_eq!(labels, ["kept"]);
+        let on_disk = BookmarkFile::from_bytes(&files.get(PATH).unwrap()).unwrap();
+        assert_eq!(on_disk.bookmarks().len(), 1);
+        assert_eq!(
+            on_disk.bookmarks()[0].time(),
+            2,
+            "the wrong row was written"
+        );
+    }
+
+    #[test]
+    fn a_remove_that_cannot_be_written_keeps_memory_and_disk() {
+        let bytes = medium_canonical();
+        let files = FailingFiles::default().with(PATH, &bytes);
+        files.fail_writes(true);
+        let mut locked = {
+            let mem = MemFiles::default().with(PATH, &bytes);
+            locked_medium(&mem)
+        };
+        assert!(matches!(
+            locked.remove(&files, 0),
+            Err(SaveError::Write { .. })
+        ));
+        assert_eq!(locked.count(), 1);
+        assert_eq!(files.get(PATH).unwrap(), bytes);
+    }
+
+    #[test]
+    fn remove_refuses_a_position_past_the_list() {
+        let files = MemFiles::default().with(PATH, &medium_canonical());
+        let mut locked = locked_medium(&files);
+        assert!(matches!(
+            locked.remove(&files, 1),
+            Err(SaveError::Refused(BookmarkError::NoSuchBookmark { .. }))
+        ));
+        assert_eq!(locked.count(), 1);
     }
 }

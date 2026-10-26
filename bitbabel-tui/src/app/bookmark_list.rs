@@ -9,6 +9,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::effect::Effect;
 use super::{App, Mode, Session};
 use crate::bookmarks::Bookmarks;
+use crate::files::Files;
 
 /// The selection and window of the `B` list.
 #[derive(Debug, Default)]
@@ -70,8 +71,9 @@ impl BookmarkList {
 }
 
 /// Handles a key while the list is open. ↑/↓ and `j`/`k` move the selection, `enter` opens
-/// the selected page and closes the list, `r` renames it, `esc` and `q` close. Any other key
-/// does nothing: `r` and `d` are the list's rename and delete, not the explore keys (§13.3b).
+/// the selected page and closes the list, `r` renames, `d` deletes at once, `esc` and `q`
+/// close. Any other key does nothing: `r` and `d` are the list's rename and delete, not the
+/// explore keys (§13.3b).
 pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     // Ctrl and Alt combos neither type nor command here, as in the other screens.
     if key
@@ -89,9 +91,27 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         KeyCode::Esc | KeyCode::Char('q') => session.close_bookmark_list(),
         KeyCode::Enter => visit_selected(session),
         KeyCode::Char('r') => rename_selected(session),
+        KeyCode::Char('d') => delete_selected(session, app.files.as_ref()),
         _ => {}
     }
     vec![]
+}
+
+/// Deletes the selected bookmark and re-clamps the list: the next row moves up into the
+/// selection, the last row steps back one, the only bookmark leaves `no bookmarks`. No
+/// confirming question (§13.3) — the page is still reachable by its index. A failed write
+/// closes the list, because its box covers the status line and the reason must be readable.
+fn delete_selected(session: &mut Session, files: &dyn Files) {
+    if session.bookmark_count() == 0 {
+        return;
+    }
+    match session.delete_selected_bookmark(files) {
+        Ok(()) => session.open_bookmark_list(),
+        Err(error) => {
+            session.close_bookmark_list();
+            session.set_error(error.to_string());
+        }
+    }
 }
 
 /// Opens the rename prompt over the list, prefilled with the selected row's label. An empty
@@ -404,5 +424,84 @@ mod test {
         app.handle_key(press(KeyCode::Esc));
         assert!(list_is_open(&app));
         assert_eq!(session_of(&app).bookmark_count(), 2);
+    }
+
+    #[test]
+    fn d_deletes_the_selected_row_at_once_with_no_question() {
+        let files = Arc::new(MemFiles::default().with(MARKS, &marks_bytes(SMALL, 2)));
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('j')));
+        app.handle_key(press(KeyCode::Char('d')));
+        // No confirmation step: one press, gone. The list stays open, re-clamped.
+        assert!(list_is_open(&app));
+        assert_eq!(session_of(&app).bookmark_count(), 1);
+        assert_eq!(selected_of(&app), 0, "the last row stepped back");
+        let on_disk = String::from_utf8(files.get(MARKS).unwrap()).unwrap();
+        assert!(on_disk.contains("mark 0"), "{on_disk}");
+        assert!(!on_disk.contains("mark 1"), "{on_disk}");
+    }
+
+    #[test]
+    fn deleting_a_row_keeps_the_selection_on_the_row_that_moved_up() {
+        let mut app = marks_app(3);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('d'))); // row 0 gone, selection stays on 0
+        assert_eq!(selected_of(&app), 0);
+        // Enter now visits what was row 1: page 2.
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(
+            index_of(&app),
+            PageIndex::from_u64(2, LibraryConfig::SMALL.page_len())
+        );
+    }
+
+    #[test]
+    fn deleting_the_only_bookmark_leaves_the_empty_list_open() {
+        let mut app = marks_app(1);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('d')));
+        assert!(list_is_open(&app));
+        assert_eq!(session_of(&app).bookmark_count(), 0);
+        assert!(status_of(&app).is_none(), "an empty list is not an error");
+        app.handle_key(press(KeyCode::Char('j'))); // the empty list scrolls nowhere
+        assert_eq!(selected_of(&app), 0);
+    }
+
+    #[test]
+    fn d_on_the_empty_list_does_nothing() {
+        let mut app = marks_app(0);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('d')));
+        assert!(list_is_open(&app));
+        assert!(status_of(&app).is_none());
+    }
+
+    #[test]
+    fn a_failed_delete_closes_the_list_and_shows_the_reason() {
+        // The list box covers the status line, so the error is readable only outside it.
+        let files = Arc::new(FailingFiles::default().with(MARKS, &marks_bytes(SMALL, 2)));
+        files.fail_writes(true);
+        let config = crate::config::TuiConfig {
+            size: None,
+            key: None,
+            bookmarks: Some(MARKS.into()),
+        };
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files.clone())))
+            .unwrap()
+            .with_clock(fixed_now);
+        app.handle_key(press(KeyCode::Char('B')));
+        app.handle_key(press(KeyCode::Char('d')));
+        assert!(!list_is_open(&app));
+        let status = status_of(&app).unwrap();
+        assert!(status.error);
+        assert!(status.text.contains("cannot save"), "{}", status.text);
+        // Memory and disk still hold both bookmarks.
+        assert_eq!(session_of(&app).bookmark_count(), 2);
+        let on_disk = String::from_utf8(files.get(MARKS).unwrap()).unwrap();
+        assert!(
+            on_disk.contains("mark 0") && on_disk.contains("mark 1"),
+            "{on_disk}"
+        );
     }
 }
