@@ -512,10 +512,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(MemFiles::default()),
         )
+        .unwrap()
     }
 
     #[test]
