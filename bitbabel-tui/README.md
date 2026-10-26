@@ -4,8 +4,9 @@ A terminal explorer for the BitBabel library, one library at a time. It is start
 `bitbabel tui`.
 
 It starts, lets you choose a library, always shows which library you are in, lets you move
-through its pages, and finds pages that contain your text. Press `?` in the explorer for the
-list of keys. Bookmarks come in a later step.
+through its pages, finds pages that contain your text, and saves pages as bookmarks. Press `?`
+in the explorer for the list of keys. Listing, renaming and deleting bookmarks come in a later
+step.
 
 ## Start it
 
@@ -22,6 +23,7 @@ Below that, every screen shows `terminal too small (need 80x24, have WxH)`.
 | `bitbabel tui --size medium` | `medium`, canonical key, no start screen |
 | `bitbabel tui --size large --key-file mine.key` | `large`, your private key, no start screen |
 | `bitbabel tui --key-file mine.key` | The start screen, asking for the size only |
+| `bitbabel tui --bookmarks favs.babelbookmark` | Opens that bookmark file's library (see Bookmarks) |
 
 `--size` alone means the canonical library, like `encode` and `decode`. `--private` (the key in
 `BITBABEL_KEY`) works the same as `--key-file`. A secret key is never typed into the screen.
@@ -69,6 +71,7 @@ and volume), then the page itself with the offset of each line on the left.
 | `r` | A random page. It is not repeatable, so keep a find by its index |
 | `e` | Show the page as text, hex, base64 or utf8 |
 | `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |
+| `b` | Bookmark this page (see Bookmarks) |
 | `n` `N` | Next and previous result of the last search |
 | `s` | Start over |
 | `?` | Show every key |
@@ -118,7 +121,9 @@ The title bar always names the library:
 ```
 ┌ medium · canonical ─────────────────────── no bookmark file ┐
 ┌ medium · key a576-7c85-fdef-3c24 ───────── no bookmark file ┐
+┌ medium · canonical ────────────────────── locked: favs (12) ┐
 ```
+The right side says whether the session has a bookmark file, and how many bookmarks it holds.
 
 The same index in another library is a different page, and a wrong key gives no error, only
 unrelated pages. So the size and the key are always shown, separately. For a private key the
@@ -128,10 +133,82 @@ apart without revealing them. The key itself is never shown.
 A key file that holds exactly the canonical root key's bytes gives the canonical library, but is
 still called a custom key here. Nobody does this by accident, so it is not special-cased.
 
+## Bookmarks
+
+A bookmark is a saved page: the time, a label you type, and the page's index. They are kept in
+one plain text file, usually named `something.babelbookmark`. A bookmark file belongs to **one
+library**: a size, and either the canonical key or one private key (the file records only the
+key's fingerprint, never the key). So a session that has a bookmark file is **locked** to it: the
+library is the file's library and cannot change for the rest of the session.
+
+```
+BABELMARKS1 size=medium key=canonical format=base64
+1790812800	looks like a word	n0aMceL9…
+1790812955	search: hello	Dp4Bq0xK…
+```
+
+### Starting with a file
+
+`bitbabel tui --bookmarks favs.babelbookmark` opens the file and starts exploring its library.
+A flag you give must match the file, and a flag you leave out is taken from the file. Every
+mismatch is an error printed before the screen opens, and it says what to change:
+
+| Problem | Message |
+|---|---|
+| The path does not exist | `cannot read typo.babelbookmark: No such file or directory`. A typo never makes a file |
+| The file is not a valid bookmark file | The reason and the line number |
+| `--size small`, but the file is medium | `--size small does not match favs.babelbookmark, which is a medium library` |
+| A private-key file, and no key given | `favs.babelbookmark needs the key with fingerprint a576-7c85-fdef-3c24; pass --key-file` |
+| The wrong key | Both fingerprints |
+| A key given, but the file is canonical | `… is a canonical library, but a key was given (--key-file, --private or BITBABEL_KEY)` |
+
+The last one also counts a key in `BITBABEL_KEY` that you did not type in this command.
+
+### Adding a bookmark
+
+`b` bookmarks the page you are on.
+
+- **In a locked session** it asks for a label (it may be empty) and saves. The status line shows
+  `bookmarked (13)`. A page that is already in the file is refused, and the message gives the
+  label it has. The label box only accepts what a label may hold: up to 200 characters, and no
+  control or invisible characters.
+- **In a session with no bookmark file** it asks for a file first, then a label:
+
+  ```
+  keep bookmarks in which file? (.babelbookmark is added):  favs        Enter
+  label for this page in favs.babelbookmark (this locks the session):  first find   Enter
+  ```
+
+  A name with no extension gets `.babelbookmark`; a typed extension is kept. **Nothing is written,
+  and the session is not locked, until the second `Enter`.** `Esc` on the label goes back to the
+  file with both texts kept, and `Esc` again cancels. If the file already exists it must be for
+  this library, and the new bookmark is added after its own. A file of another library, or one
+  that is not a bookmark file, is an error in the box and is not touched.
+
+Every change is written to the file at once, so there is no save key and nothing is lost on
+quit. The file is written to a temporary file in the same folder and then renamed over the real
+one, so it is never half written. If the disk refuses, the error appears in the box, the
+bookmark is not kept, and you can press `Enter` again.
+
+### Things to know
+
+- **Bookmark files are not secret.** The label, time and index are plain text that anyone with
+  the file can read, whatever the key. A private-key file also records the key's fingerprint,
+  which would let someone test a guess at a weak, passphrase-made key. A key made with
+  `bitbabel keygen` is 32 random bytes and is not at risk.
+- **Don't edit a bookmark file while the TUI has it open.** Every change rewrites the whole file
+  from what the TUI holds, so an edit made elsewhere is overwritten. Two copies of the TUI on
+  one file also overwrite each other: the last write wins.
+- **To use the file of another library, start again** with `--bookmarks` (or press `s` and
+  begin a new session). A session cannot switch files.
+- A file holds at most 10,000 bookmarks.
+- The time is stored as unix seconds (UTC).
+
 ## Start over
 
-`s` goes back to a fresh start screen. The page and history are dropped, and a key given with
-`--key-file` or `--private` is not carried over: pick it again with the key file option.
+`s` goes back to a fresh start screen. The page, history and bookmark file are dropped (the
+bookmarks stay in their file), and a key given with `--key-file` or `--private` is not carried
+over: pick it again with the key file option.
 
 ## Keys and the terminal
 
