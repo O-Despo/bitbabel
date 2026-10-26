@@ -13,4 +13,4 @@ mod line;
 
 pub use file::{BookmarkFile, MAX_BOOKMARKS};
 pub use header::{BookmarkKey, BookmarkSettings};
-pub use line::{Bookmark, MAX_LABEL_CHARS};
+pub use line::{Bookmark, MAX_LABEL_CHARS, is_label_char};

@@ -2,14 +2,18 @@
 //! While one is open every key goes to it, so typing `q` into a path never quits.
 
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
+use bitbabel_file::{BookmarkFile, MAX_LABEL_CHARS, is_label_char};
+
 use super::effect::Effect;
 use super::session::Session;
 use super::{App, Mode, typed_char};
+use crate::bookmarks::{Bookmarks, LockedBookmarks, library_mismatch};
+use crate::clock::NowFn;
 use crate::files::Files;
 
 /// What a prompt asks for.
@@ -19,6 +23,24 @@ pub enum PromptKind {
     GoTo,
     /// A new file to save the current index in.
     Export,
+    /// The label of a new bookmark.
+    Bookmark,
+    /// The file to keep bookmarks in, asked for the first time a session bookmarks a page. The
+    /// label comes next, and nothing is written until that is confirmed.
+    BookmarkFile,
+}
+
+/// What the first bookmark of a session carries from the file step to the label step.
+#[derive(Debug, Clone)]
+struct Pending {
+    /// The file, with `.babelbookmark` added if the name had no extension.
+    path: PathBuf,
+    /// What was typed for the file, to show again if the user steps back.
+    path_text: String,
+    /// The file as it is on disk, or `None` if it does not exist yet.
+    existing: Option<BookmarkFile>,
+    /// A label typed and then stepped back from, to show again if the user comes forward.
+    label: String,
 }
 
 /// An open prompt.
@@ -28,6 +50,9 @@ pub struct Prompt {
     input: String,
     /// Why the last Enter did not work. The prompt stays open.
     error: Option<String>,
+    /// Set on the label step of the first bookmark, where the file has been chosen but not
+    /// written.
+    pending: Option<Pending>,
 }
 
 impl Prompt {
@@ -36,6 +61,7 @@ impl Prompt {
             kind,
             input: String::new(),
             error: None,
+            pending: None,
         }
     }
 
@@ -48,14 +74,33 @@ impl Prompt {
         match self.kind {
             PromptKind::GoTo => "go to",
             PromptKind::Export => "export index",
+            PromptKind::Bookmark => "bookmark",
+            PromptKind::BookmarkFile => "bookmark file",
         }
     }
 
     /// The question.
-    pub fn label(&self) -> &'static str {
-        match self.kind {
-            PromptKind::GoTo => "file holding the index (hex or base64):",
-            PromptKind::Export => "save the index to a new file:",
+    pub fn label(&self) -> String {
+        match (&self.kind, &self.pending) {
+            (PromptKind::GoTo, _) => "file holding the index (hex or base64):".to_string(),
+            (PromptKind::Export, _) => "save the index to a new file:".to_string(),
+            (PromptKind::BookmarkFile, _) => {
+                "keep bookmarks in which file? (.babelbookmark is added):".to_string()
+            }
+            (PromptKind::Bookmark, Some(pending)) => format!(
+                "label for this page in {} (this locks the session to this library):",
+                pending.path.display()
+            ),
+            (PromptKind::Bookmark, None) => "label for this page (may be empty):".to_string(),
+        }
+    }
+
+    /// The keys line at the bottom of the box.
+    pub fn footer(&self) -> &'static str {
+        match (&self.kind, &self.pending) {
+            (PromptKind::BookmarkFile, _) => "enter next   esc cancel",
+            (PromptKind::Bookmark, Some(_)) => "enter save   esc back",
+            _ => "enter confirm   esc cancel",
         }
     }
 
@@ -76,8 +121,12 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         return vec![];
     };
     match key.code {
-        KeyCode::Esc => session.close_prompt(),
-        KeyCode::Enter => submit(session, app.files.as_ref()),
+        KeyCode::Esc => {
+            if !step_back(session) {
+                session.close_prompt();
+            }
+        }
+        KeyCode::Enter => submit(session, app.files.as_ref(), app.now),
         KeyCode::Backspace => {
             if let Some(prompt) = session.prompt_mut() {
                 prompt.input.pop();
@@ -86,22 +135,165 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         }
         _ => {
             if let (Some(c), Some(prompt)) = (typed_char(&key), session.prompt_mut()) {
-                prompt.input.push(c);
-                prompt.error = None;
+                // A label box only takes what a label may hold, so what is typed is valid.
+                let refused = prompt.kind == PromptKind::Bookmark
+                    && (!is_label_char(c) || prompt.input.chars().count() >= MAX_LABEL_CHARS);
+                if !refused {
+                    prompt.input.push(c);
+                    prompt.error = None;
+                }
             }
         }
     }
     vec![]
 }
 
+/// Esc on the label step of a first bookmark goes back to the file step, with both texts kept.
+/// Returns whether it did; any other prompt is just closed.
+fn step_back(session: &mut Session) -> bool {
+    let Some(prompt) = session.prompt_mut() else {
+        return false;
+    };
+    // Only the label step goes back. The file step, which also remembers the label, closes.
+    if prompt.kind != PromptKind::Bookmark {
+        return false;
+    }
+    let Some(mut pending) = prompt.pending.take() else {
+        return false;
+    };
+    pending.label = std::mem::take(&mut prompt.input);
+    prompt.input = pending.path_text.clone();
+    prompt.kind = PromptKind::BookmarkFile;
+    prompt.pending = Some(pending);
+    prompt.error = None;
+    true
+}
+
 /// Enter: do what the prompt asks. A failure stays in the prompt as an inline error.
-fn submit(session: &mut Session, files: &dyn Files) {
+fn submit(session: &mut Session, files: &dyn Files, now: NowFn) {
     let Some(prompt) = session.prompt() else {
         return;
     };
     match prompt.kind {
         PromptKind::GoTo => go_to(session, files),
         PromptKind::Export => export(session, files),
+        PromptKind::Bookmark => add_bookmark(session, files, now()),
+        PromptKind::BookmarkFile => choose_bookmark_file(session, files),
+    }
+}
+
+/// Adds a bookmark for the current page, labelled with what was typed, and saves the file.
+/// On the label step of a first bookmark this also creates or opens the file and locks the
+/// session to it. A problem stays in the prompt, which stays open.
+fn add_bookmark(session: &mut Session, files: &dyn Files, now: u64) {
+    let Some(prompt) = session.prompt() else {
+        return;
+    };
+    let label = prompt.input.clone();
+    let pending = prompt.pending.clone();
+    let index = session.index().clone();
+    if let Some(pending) = pending {
+        return start_bookmarks(session, files, (now, &label, index), pending);
+    }
+    let Bookmarks::Locked(locked) = session.bookmarks_mut() else {
+        session.set_prompt_error("no bookmark file");
+        return;
+    };
+    match locked.add(files, now, &label, index) {
+        Ok(count) => {
+            session.close_prompt();
+            session.set_status(format!("bookmarked ({count})"));
+        }
+        Err(error) => session.set_prompt_error(error.to_string()),
+    }
+}
+
+/// The label step of a first bookmark: writes the file and locks the session to it. If the
+/// write fails the session is still free and both steps keep what was typed.
+fn start_bookmarks(
+    session: &mut Session,
+    files: &dyn Files,
+    bookmark: (u64, &str, PageIndex),
+    pending: Pending,
+) {
+    let (file, is_new) = match pending.existing {
+        Some(file) => (file, false),
+        None => match session.library().bookmark_settings() {
+            Ok(settings) => (BookmarkFile::new(settings), true),
+            Err(error) => return session.set_prompt_error(error.to_string()),
+        },
+    };
+    match LockedBookmarks::start(files, pending.path, file, is_new, bookmark) {
+        Ok((locked, count)) => {
+            let name = locked.name();
+            session.set_bookmarks(Bookmarks::Locked(locked));
+            session.close_prompt();
+            session.set_status(format!("bookmarked ({count}) · locked to {name}"));
+        }
+        Err(error) => session.set_prompt_error(error.to_string()),
+    }
+}
+
+/// The file step of a first bookmark: finds out what is at the path, and if it can be used
+/// goes on to the label step. Nothing is written. A problem stays in the prompt.
+fn choose_bookmark_file(session: &mut Session, files: &dyn Files) {
+    let Some(prompt) = session.prompt() else {
+        return;
+    };
+    let typed = prompt.input.trim().to_string();
+    let earlier_label = prompt
+        .pending
+        .as_ref()
+        .map(|pending| pending.label.clone())
+        .unwrap_or_default();
+    if typed.is_empty() {
+        return session.set_prompt_error("type a file name");
+    }
+    let settings = match session.library().bookmark_settings() {
+        Ok(settings) => settings,
+        Err(error) => return session.set_prompt_error(error.to_string()),
+    };
+    let path = with_bookmark_extension(&typed);
+    let existing = match files.read(&path, BookmarkFile::max_bytes(&settings)) {
+        Ok(bytes) => match BookmarkFile::from_bytes(&bytes) {
+            Ok(file) => {
+                if let Some(message) = library_mismatch(&path, &file.settings(), &settings) {
+                    return session.set_prompt_error(message);
+                }
+                Some(file)
+            }
+            Err(error) => {
+                let message = format!("{} is not a valid bookmark file: {error}", path.display());
+                return session.set_prompt_error(message);
+            }
+        },
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => {
+            let message = format!("cannot read {}: {error}", path.display());
+            return session.set_prompt_error(message);
+        }
+    };
+    if let Some(prompt) = session.prompt_mut() {
+        prompt.kind = PromptKind::Bookmark;
+        prompt.input = earlier_label.clone();
+        prompt.error = None;
+        prompt.pending = Some(Pending {
+            path,
+            path_text: typed,
+            existing,
+            label: earlier_label,
+        });
+    }
+}
+
+/// `typed` as a path, with `.babelbookmark` added if the name has no extension. A name that
+/// has one, such as `notes.txt`, is kept as typed.
+fn with_bookmark_extension(typed: &str) -> PathBuf {
+    let path = Path::new(typed);
+    if path.extension().is_some() {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(format!("{typed}.babelbookmark"))
     }
 }
 
@@ -352,8 +544,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(files));
+        let mut app = App::new(config, fake_random, Box::new(files)).unwrap();
         app.handle_key(press(KeyCode::Char('x')));
         type_text(&mut app, name);
         app
@@ -362,21 +555,12 @@ mod test {
     #[test]
     fn export_writes_the_index_as_base64_and_a_newline() {
         let files = std::sync::Arc::new(MemFiles::default());
-        // Share the fake with the app so the test can look inside it afterwards.
-        struct Shared(std::sync::Arc<MemFiles>);
-        impl Files for Shared {
-            fn read(&self, path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
-                self.0.read(path, max)
-            }
-            fn write_new(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-                self.0.write_new(path, bytes)
-            }
-        }
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(Shared(files.clone())));
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files.clone()))).unwrap();
         app.handle_key(press(KeyCode::Char('l')));
         app.handle_key(press(KeyCode::Char('x')));
         type_text(&mut app, "idx.txt");
@@ -418,10 +602,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::MEDIUM),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(SharedFiles(files)),
-        );
+        )
+        .unwrap();
         app.handle_key(press(KeyCode::Char('l')));
         let saved = index_of(&app);
 
@@ -447,10 +633,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(files),
-        );
+        )
+        .unwrap();
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('g')));
         type_text(&mut app, "short.txt");
@@ -473,10 +661,12 @@ mod test {
             TuiConfig {
                 size: Some(LibraryConfig::SMALL),
                 key: None,
+                bookmarks: None,
             },
             fake_random,
             Box::new(files),
-        );
+        )
+        .unwrap();
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('g')));
         type_text(&mut app, "seven.txt");
@@ -484,5 +674,437 @@ mod test {
         assert_eq!(index_of(&app), bitbabel_core::PageIndex::from_u64(7, 16));
         app.handle_key(press(KeyCode::Left));
         assert_eq!(index_of(&app), start);
+    }
+    fn marks_in(bytes: Vec<u8>) -> bitbabel_file::BookmarkFile {
+        bitbabel_file::BookmarkFile::from_bytes(&bytes).unwrap()
+    }
+
+    fn open_prompt_error(app: &App) -> Option<String> {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt().and_then(|p| p.error().map(str::to_string))
+    }
+
+    fn prompt_is_open(app: &App) -> bool {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session.prompt().is_some()
+    }
+
+    fn marked_files() -> std::sync::Arc<MemFiles> {
+        std::sync::Arc::new(MemFiles::default().with(MARKS, &empty_marks()))
+    }
+
+    #[test]
+    fn b_asks_for_a_label_then_saves_the_page_with_the_time() {
+        let files = marked_files();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        assert!(prompt_is_open(&app));
+        type_text(&mut app, "looks like a word");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert!(!prompt_is_open(&app));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (1)");
+        let saved = marks_in(files.get(MARKS).unwrap());
+        let mark = &saved.bookmarks()[0];
+        assert_eq!(mark.label(), "looks like a word");
+        assert_eq!(mark.time(), fixed_now());
+        assert_eq!(mark.index(), &index_of(&app));
+    }
+
+    #[test]
+    fn an_empty_label_is_fine_and_a_second_page_makes_two() {
+        let files = marked_files();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "next");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (2)");
+        let saved = marks_in(files.get(MARKS).unwrap());
+        assert_eq!(saved.bookmarks().len(), 2);
+        assert_eq!(saved.bookmarks()[0].label(), "");
+    }
+
+    #[test]
+    fn bookmarking_a_page_twice_is_refused_and_names_the_first_label() {
+        let files = marked_files();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "first");
+        app.handle_key(press(KeyCode::Enter));
+        let before = files.get(MARKS).unwrap();
+
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "again");
+        app.handle_key(press(KeyCode::Enter));
+        assert!(prompt_is_open(&app));
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "this page is already bookmarked as \"first\""
+        );
+        assert_eq!(files.get(MARKS).unwrap(), before);
+    }
+
+    #[test]
+    fn esc_cancels_and_writes_nothing() {
+        let files = marked_files();
+        let before = files.get(MARKS).unwrap();
+        let mut app = bookmarked_app(files.clone());
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "never saved");
+        app.handle_key(press(KeyCode::Esc));
+        assert!(!prompt_is_open(&app));
+        assert_eq!(files.get(MARKS).unwrap(), before);
+    }
+
+    #[test]
+    fn the_label_box_ignores_characters_a_label_cannot_hold_and_stops_at_200() {
+        let mut app = bookmarked_app(marked_files());
+        app.handle_key(press(KeyCode::Char('b')));
+        // A zero-width space and an escape are ignored; other keys still type.
+        type_text(&mut app, "a\u{200b}b\u{1b}c");
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input(), "abc");
+
+        type_text(&mut app, &"x".repeat(300));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input().chars().count(), 200);
+    }
+
+    #[test]
+    fn a_failed_write_is_an_inline_error_and_leaves_the_list_as_it_was() {
+        let files =
+            std::sync::Arc::new(crate::files::FailingFiles::default().with(MARKS, &empty_marks()));
+        let mut app = bookmarked_app(files.clone());
+        files.fail_writes(true);
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(&mut app, "kept");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert!(prompt_is_open(&app));
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "cannot save marks.babelbookmark: No space left on device"
+        );
+        assert_eq!(files.get(MARKS).unwrap(), empty_marks());
+
+        // Once the disk works again the same Enter saves it: one bookmark, not a duplicate
+        // error, because the failed attempt was rolled back.
+        files.fail_writes(false);
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (1)");
+        assert_eq!(marks_in(files.get(MARKS).unwrap()).bookmarks().len(), 1);
+    }
+
+    #[test]
+    fn b_is_text_inside_a_prompt() {
+        let mut app = bookmarked_app(marked_files());
+        app.handle_key(press(KeyCode::Char('g')));
+        app.handle_key(press(KeyCode::Char('b')));
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        assert_eq!(session.prompt().unwrap().input(), "b");
+        assert_eq!(session.prompt().unwrap().title(), "go to");
+    }
+
+    // --- the first bookmark of a session without a file ---
+
+    fn session_of(app: &App) -> &Session {
+        let Mode::Explore(session) = app.mode() else {
+            panic!("should be exploring");
+        };
+        session
+    }
+
+    fn is_locked(app: &App) -> bool {
+        matches!(session_of(app).bookmarks(), Bookmarks::Locked(_))
+    }
+
+    /// A small canonical session with no bookmark file, over `files`.
+    fn free_app<F: Files + 'static>(files: std::sync::Arc<F>) -> App {
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+            bookmarks: None,
+        };
+        App::new(config, fake_random, Box::new(SharedFiles(files)))
+            .unwrap()
+            .with_clock(fixed_now)
+    }
+
+    /// `b`, then `path` and Enter: on the label step.
+    fn choose_file(app: &mut App, path: &str) {
+        app.handle_key(press(KeyCode::Char('b')));
+        type_text(app, path);
+        app.handle_key(press(KeyCode::Enter));
+    }
+
+    fn small_file_with(count: u64) -> Vec<u8> {
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let settings = BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Canonical).unwrap();
+        let mut file = BookmarkFile::new(settings);
+        for n in 0..count {
+            // Indices far from the first page, which a test bookmarks.
+            let index = PageIndex::from_u64(1000 + n, 16);
+            file.push(5, &format!("old {n}"), index).unwrap();
+        }
+        file.to_bytes()
+    }
+
+    #[test]
+    fn b_without_a_file_asks_for_one_first() {
+        let mut app = free_app(std::sync::Arc::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('b')));
+        let prompt = session_of(&app).prompt().unwrap();
+        assert_eq!(prompt.title(), "bookmark file");
+        assert!(prompt.label().starts_with("keep bookmarks in which file?"));
+        assert_eq!(prompt.footer(), "enter next   esc cancel");
+    }
+
+    #[test]
+    fn a_new_file_is_written_only_when_the_label_is_confirmed() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "favs");
+
+        // On the label step: the name has its extension, and nothing exists yet.
+        let prompt = session_of(&app).prompt().unwrap();
+        assert_eq!(prompt.title(), "bookmark");
+        assert!(
+            prompt.label().contains("favs.babelbookmark"),
+            "{}",
+            prompt.label()
+        );
+        assert!(prompt.label().contains("locks the session"));
+        assert_eq!(prompt.footer(), "enter save   esc back");
+        assert_eq!(files.get("favs.babelbookmark"), None);
+        assert!(!is_locked(&app));
+
+        type_text(&mut app, "first find");
+        app.handle_key(press(KeyCode::Enter));
+        assert!(!prompt_is_open(&app));
+        assert!(is_locked(&app));
+        assert_eq!(
+            status_of(&app).unwrap().text,
+            "bookmarked (1) · locked to favs"
+        );
+        let saved = marks_in(files.get("favs.babelbookmark").unwrap());
+        assert_eq!(saved.bookmarks()[0].label(), "first find");
+        assert_eq!(saved.bookmarks()[0].time(), fixed_now());
+        assert_eq!(saved.bookmarks()[0].index(), &index_of(&app));
+        assert_eq!(saved.settings().size(), LibraryConfig::SMALL);
+
+        // From now on `b` goes straight to the label.
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(session_of(&app).prompt().unwrap().title(), "bookmark");
+        assert!(!session_of(&app).prompt().unwrap().label().contains("locks"));
+    }
+
+    #[test]
+    fn a_typed_extension_is_kept_and_a_missing_one_is_added() {
+        assert_eq!(
+            with_bookmark_extension("favs"),
+            PathBuf::from("favs.babelbookmark")
+        );
+        assert_eq!(
+            with_bookmark_extension("dir/notes.txt"),
+            PathBuf::from("dir/notes.txt")
+        );
+        assert_eq!(
+            with_bookmark_extension("dir/favs.babelbookmark"),
+            PathBuf::from("dir/favs.babelbookmark")
+        );
+    }
+
+    #[test]
+    fn esc_steps_back_from_the_label_to_the_file_and_then_closes_with_nothing_written() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "favs");
+        type_text(&mut app, "half typed");
+
+        app.handle_key(press(KeyCode::Esc));
+        let prompt = session_of(&app).prompt().unwrap();
+        assert_eq!(prompt.title(), "bookmark file");
+        assert_eq!(prompt.input(), "favs");
+
+        // Coming forward again shows the label that was typed.
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(session_of(&app).prompt().unwrap().input(), "half typed");
+
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Esc));
+        assert!(!prompt_is_open(&app));
+        assert!(!is_locked(&app));
+        assert_eq!(files.get("favs.babelbookmark"), None);
+    }
+
+    #[test]
+    fn an_empty_file_name_is_an_inline_error() {
+        let mut app = free_app(std::sync::Arc::new(MemFiles::default()));
+        app.handle_key(press(KeyCode::Char('b')));
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(open_prompt_error(&app).unwrap(), "type a file name");
+        assert_eq!(session_of(&app).prompt().unwrap().title(), "bookmark file");
+    }
+
+    #[test]
+    fn an_existing_file_of_this_library_gets_the_new_bookmark_after_its_own() {
+        let files = std::sync::Arc::new(
+            MemFiles::default().with("favs.babelbookmark", &small_file_with(2)),
+        );
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "favs");
+        type_text(&mut app, "new one");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert_eq!(
+            status_of(&app).unwrap().text,
+            "bookmarked (3) · locked to favs"
+        );
+        let saved = marks_in(files.get("favs.babelbookmark").unwrap());
+        let labels: Vec<_> = saved.bookmarks().iter().map(|b| b.label()).collect();
+        assert_eq!(labels, ["old 0", "old 1", "new one"]);
+    }
+
+    #[test]
+    fn a_file_of_another_library_is_an_inline_error_that_names_both() {
+        let medium = {
+            use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+            let settings =
+                BookmarkSettings::new(LibraryConfig::MEDIUM, BookmarkKey::Canonical).unwrap();
+            BookmarkFile::new(settings).to_bytes()
+        };
+        let files = std::sync::Arc::new(MemFiles::default().with("other.babelbookmark", &medium));
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "other");
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "other.babelbookmark is a medium library, but this session is small"
+        );
+        // Still on the file step, so the name can be fixed.
+        assert_eq!(session_of(&app).prompt().unwrap().title(), "bookmark file");
+        assert_eq!(files.get("other.babelbookmark").unwrap(), medium);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_bookmark_file_is_an_inline_error_and_is_not_touched() {
+        let files = std::sync::Arc::new(MemFiles::default().with("notes.txt", b"hello\n"));
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "notes.txt");
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "notes.txt is not a valid bookmark file: not a bookmark file"
+        );
+        assert_eq!(files.get("notes.txt").unwrap(), b"hello\n");
+    }
+
+    #[test]
+    fn a_page_already_in_the_file_is_refused_on_the_label_step_with_nothing_written() {
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let settings = BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Canonical).unwrap();
+        let mut file = BookmarkFile::new(settings);
+        file.push(5, "already here", PageIndex::zero(16)).unwrap();
+        let bytes = file.to_bytes();
+        let files = std::sync::Arc::new(MemFiles::default().with("favs.babelbookmark", &bytes));
+        let mut app = free_app(files.clone());
+        // The session starts on page 0, which is the bookmarked one.
+        choose_file(&mut app, "favs");
+        type_text(&mut app, "again");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "this page is already bookmarked as \"already here\""
+        );
+        assert_eq!(session_of(&app).prompt().unwrap().input(), "again");
+        assert!(!is_locked(&app));
+        assert_eq!(files.get("favs.babelbookmark").unwrap(), bytes);
+    }
+
+    #[test]
+    fn a_failed_first_write_keeps_both_steps_and_the_session_free_and_retrying_works() {
+        let files = std::sync::Arc::new(crate::files::FailingFiles::default());
+        let mut app = free_app(files.clone());
+        files.fail_writes(true);
+        choose_file(&mut app, "favs");
+        type_text(&mut app, "kept");
+        app.handle_key(press(KeyCode::Enter));
+
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "cannot save favs.babelbookmark: No space left on device"
+        );
+        assert_eq!(session_of(&app).prompt().unwrap().input(), "kept");
+        assert!(!is_locked(&app));
+        assert_eq!(files.get("favs.babelbookmark"), None);
+
+        files.fail_writes(false);
+        app.handle_key(press(KeyCode::Enter));
+        assert!(is_locked(&app));
+        assert_eq!(
+            marks_in(files.get("favs.babelbookmark").unwrap())
+                .bookmarks()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_private_key_session_writes_a_file_for_its_fingerprint() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let key = bitbabel_core::Key::from_bytes([1; 32]);
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: Some(key.clone()),
+            bookmarks: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files.clone())))
+            .unwrap()
+            .with_clock(fixed_now);
+        choose_file(&mut app, "mine");
+        app.handle_key(press(KeyCode::Enter));
+
+        let text = String::from_utf8(files.get("mine.babelbookmark").unwrap()).unwrap();
+        let fingerprint =
+            <bitbabel_core::Hex as bitbabel_core::Encoding>::encode(&key.fingerprint());
+        assert!(
+            text.starts_with(&format!(
+                "BABELMARKS1 size=small key=custom fingerprint={fingerprint} format=base64\n"
+            )),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_private_key_session_refuses_a_canonical_file() {
+        let files =
+            std::sync::Arc::new(MemFiles::default().with("pub.babelbookmark", &small_file_with(0)));
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: Some(bitbabel_core::Key::from_bytes([1; 32])),
+            bookmarks: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files)))
+            .unwrap()
+            .with_clock(fixed_now);
+        choose_file(&mut app, "pub");
+        assert_eq!(
+            open_prompt_error(&app).unwrap(),
+            "pub.babelbookmark is a canonical library, but this session uses a private key"
+        );
     }
 }

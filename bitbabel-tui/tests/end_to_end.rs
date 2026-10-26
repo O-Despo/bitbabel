@@ -9,6 +9,9 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<TuiConfig>();
     assert_send_sync::<TuiError>();
     assert_send_sync::<StdFiles>();
+    assert_send_sync::<LockedBookmarks>();
+    assert_send_sync::<StartError>();
+    assert_send_sync::<SaveError>();
 }
 
 #[test]

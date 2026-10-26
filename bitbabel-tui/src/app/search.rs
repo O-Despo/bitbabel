@@ -329,8 +329,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default())).unwrap();
         app.handle_key(press(KeyCode::Char('/')));
         type_text(&mut app, needle);
         app
@@ -421,8 +422,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default())).unwrap();
         app.handle_key(press(KeyCode::Char('/')));
         type_text(&mut app, "hi");
         app.handle_key(press(KeyCode::Enter));
@@ -548,8 +550,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::MEDIUM),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, fake_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, fake_random, Box::new(MemFiles::default())).unwrap();
         app.handle_key(press(KeyCode::Char('/')));
         type_text(&mut app, "needle");
         app.handle_key(press(KeyCode::Enter));
@@ -686,8 +689,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, counting_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, counting_random, Box::new(MemFiles::default())).unwrap();
         app.handle_key(press(KeyCode::Char('/')));
         type_text(&mut app, "hi");
         app.handle_key(press(KeyCode::Enter));
@@ -750,8 +754,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default())).unwrap();
         app.handle_key(press(KeyCode::Char('/')));
         type_text(&mut app, "a中");
         app.handle_key(press(KeyCode::Enter));

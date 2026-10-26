@@ -422,6 +422,7 @@ fn tui_is_a_subcommand() {
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("--size"));
     assert!(help.contains("--key-file"));
+    assert!(help.contains("--bookmarks"));
 }
 
 #[cfg(feature = "tui")]
@@ -429,6 +430,15 @@ fn tui_is_a_subcommand() {
 fn tui_needs_a_terminal() {
     // The test pipes stdin and stdout, so neither is a terminal.
     let output = run(&["tui", "--size", "small"], b"", None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("tui needs a terminal"));
+}
+
+#[cfg(feature = "tui")]
+#[test]
+fn tui_accepts_a_bookmarks_path() {
+    // Piped, so it stops at the terminal check, which comes after the flag is parsed.
+    let output = run(&["tui", "--bookmarks", "favs.babelbookmark"], b"", None);
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr(&output).contains("tui needs a terminal"));
 }

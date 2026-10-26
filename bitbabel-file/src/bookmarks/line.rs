@@ -14,6 +14,12 @@ use crate::error::LineError;
 /// The most characters a label may have.
 pub const MAX_LABEL_CHARS: usize = 200;
 
+/// Whether `c` may be in a label. A text box can use this to ignore the characters a label
+/// would refuse, so what is typed is always a valid label (up to [`MAX_LABEL_CHARS`]).
+pub fn is_label_char(c: char) -> bool {
+    !c.is_control() && !is_hidden(c)
+}
+
 /// Characters that are not drawn, or that change how text is ordered or broken. A label with
 /// one of these can read differently from what it holds. A zero-width joiner (U+200D) is
 /// allowed because emoji need it.
@@ -265,6 +271,26 @@ mod test {
             "a\u{e0080}b",
         ] {
             assert!(Bookmark::new(1, ok, index()).is_ok(), "{ok:?}");
+        }
+    }
+
+    #[test]
+    fn is_label_char_agrees_with_the_label_rule() {
+        for c in ['a', 'é', '日', ' ', '👨', '\u{200d}', '\u{2027}'] {
+            assert!(is_label_char(c), "{c:?}");
+            assert!(Bookmark::new(1, &c.to_string(), index()).is_ok());
+        }
+        for c in [
+            '\t',
+            '\n',
+            '\u{1b}',
+            '\u{7f}',
+            '\u{202e}',
+            '\u{200b}',
+            '\u{e0041}',
+        ] {
+            assert!(!is_label_char(c), "{c:?}");
+            assert!(Bookmark::new(1, &c.to_string(), index()).is_err());
         }
     }
 

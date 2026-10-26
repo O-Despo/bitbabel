@@ -3,6 +3,8 @@
 //! [`run`] takes a [`TuiConfig`] and returns when the user quits.
 
 mod app;
+mod bookmarks;
+mod clock;
 mod config;
 mod error;
 mod files;
@@ -16,6 +18,7 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event};
 
 use app::{App, Effect};
+pub use bookmarks::{LockedBookmarks, SaveError, StartError};
 pub use config::TuiConfig;
 pub use error::TuiError;
 pub use files::{Files, StdFiles};
@@ -28,13 +31,13 @@ pub use random::{RandomError, RandomFn, os_random};
 ///
 /// # Errors
 ///
-/// [`TuiError::Terminal`] if the terminal cannot be set up, drawn on or read from.
+/// - [`TuiError::Bookmarks`] if the bookmark file in `config` cannot be used. This is found
+///   before the terminal is touched, so the message prints in the normal terminal.
+/// - [`TuiError::Terminal`] if the terminal cannot be set up, drawn on or read from.
 pub fn run(config: TuiConfig) -> Result<(), TuiError> {
+    let mut app = App::new(config, os_random, Box::new(StdFiles))?;
     let mut terminal = ratatui::try_init()?;
-    let result = event_loop(
-        &mut terminal,
-        &mut App::new(config, os_random, Box::new(StdFiles)),
-    );
+    let result = event_loop(&mut terminal, &mut app);
     let restored = ratatui::try_restore();
     result?;
     restored?;

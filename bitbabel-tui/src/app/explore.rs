@@ -7,6 +7,7 @@ use super::effect::Effect;
 use super::prompt::{self, PromptKind};
 use super::search;
 use super::{App, Mode};
+use crate::bookmarks::Bookmarks;
 use crate::keymap::{self, Action};
 
 /// Handles a key press in [`Mode::Explore`].
@@ -50,6 +51,13 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Export => session.open_prompt(PromptKind::Export),
         Action::CycleView => session.cycle_view(),
         Action::Search => session.open_search(),
+        Action::AddBookmark => {
+            if matches!(session.bookmarks(), Bookmarks::Locked(_)) {
+                session.open_prompt(PromptKind::Bookmark);
+            } else {
+                session.open_prompt(PromptKind::BookmarkFile);
+            }
+        }
         Action::NextResult => search::step_result(session, true),
         Action::PrevResult => search::step_result(session, false),
         Action::Random => {}
@@ -207,8 +215,9 @@ mod test {
         let config = TuiConfig {
             size: Some(LibraryConfig::SMALL),
             key: None,
+            bookmarks: None,
         };
-        let mut app = App::new(config, failing_random, Box::new(MemFiles::default()));
+        let mut app = App::new(config, failing_random, Box::new(MemFiles::default())).unwrap();
         let start = index_of(&app);
         app.handle_key(press(KeyCode::Char('r')));
         assert_eq!(index_of(&app), start);

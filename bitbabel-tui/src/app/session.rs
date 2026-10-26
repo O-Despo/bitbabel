@@ -8,6 +8,7 @@ use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
 use super::search::SearchForm;
 use super::viewport::Viewport;
+use crate::bookmarks::Bookmarks;
 use crate::history::History;
 use crate::render::{DisplayLine, View, render};
 
@@ -30,6 +31,7 @@ pub struct Session {
     status: Option<Status>,
     /// What is open over the page, if anything.
     overlay: Overlay,
+    bookmarks: Bookmarks,
     /// The search form. It keeps its needle and results when the overlay is closed.
     search: Option<SearchForm>,
     /// The bytes of the page to mark, set when a search result is opened.
@@ -79,11 +81,26 @@ impl Session {
             history: History::new(first),
             status: None,
             overlay: Overlay::None,
+            bookmarks: Bookmarks::Free,
             search: None,
             highlight: None,
         };
         session.refresh_lines();
         Ok(session)
+    }
+
+    /// Whether this session has a bookmark file.
+    pub fn bookmarks(&self) -> &Bookmarks {
+        &self.bookmarks
+    }
+
+    pub(super) fn bookmarks_mut(&mut self) -> &mut Bookmarks {
+        &mut self.bookmarks
+    }
+
+    /// Binds the session to a bookmark file.
+    pub(super) fn set_bookmarks(&mut self, bookmarks: Bookmarks) {
+        self.bookmarks = bookmarks;
     }
 
     /// The library of this session.

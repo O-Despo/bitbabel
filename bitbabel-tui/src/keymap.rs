@@ -16,6 +16,7 @@ pub enum Action {
     Random,
     GoTo,
     Search,
+    AddBookmark,
     NextResult,
     PrevResult,
     Export,
@@ -137,7 +138,7 @@ const BINDINGS: &[Binding] = &[
     bind(
         Pattern::Char('g'),
         Action::GoTo,
-        Some("g go to"),
+        None,
         Some("go to an index from a file"),
     ),
     bind(
@@ -145,6 +146,12 @@ const BINDINGS: &[Binding] = &[
         Action::Search,
         Some("/ search"),
         Some("search for text"),
+    ),
+    bind(
+        Pattern::Char('b'),
+        Action::AddBookmark,
+        Some("b mark"),
+        Some("bookmark this page"),
     ),
     bind(
         Pattern::Char('n'),
@@ -375,7 +382,7 @@ mod test {
         let hints = hints();
         assert_eq!(
             hints,
-            "h/l page  j/k scroll  r random  g go to  / search  e view  q quit  ? help"
+            "h/l page  j/k scroll  r random  / search  b mark  e view  q quit  ? help"
         );
         assert!(hints.chars().count() <= 78);
     }
