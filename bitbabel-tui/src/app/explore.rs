@@ -55,7 +55,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
             if matches!(session.bookmarks(), Bookmarks::Locked(_)) {
                 session.open_prompt(PromptKind::Bookmark);
             } else {
-                session.set_error("no bookmark file: start with --bookmarks FILE");
+                session.open_prompt(PromptKind::BookmarkFile);
             }
         }
         Action::NextResult => search::step_result(session, true),

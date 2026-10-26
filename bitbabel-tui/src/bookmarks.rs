@@ -120,6 +120,30 @@ impl LockedBookmarks {
         Ok((library, locked))
     }
 
+    /// Starts a bookmark file with its first bookmark for this session. `file` is the file as
+    /// it is on disk, or an empty one if `path` does not exist yet (`is_new`). The bookmark is
+    /// `(time, label, index)`. The file is written: a new file with `write_new`, so one that
+    /// appeared in the meantime is never overwritten, an old one with `write_replace`.
+    /// Returns the open file and how many bookmarks it has.
+    ///
+    /// Nothing is kept if this fails: the caller still has no bookmark file.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`], as for [`add`](Self::add).
+    pub fn start(
+        files: &dyn Files,
+        path: PathBuf,
+        file: BookmarkFile,
+        is_new: bool,
+        bookmark: (u64, &str, PageIndex),
+    ) -> Result<(LockedBookmarks, usize), SaveError> {
+        let mut locked = LockedBookmarks { path, file };
+        let (time, label, index) = bookmark;
+        let count = locked.push_and_write(files, time, label, index, is_new)?;
+        Ok((locked, count))
+    }
+
     /// Adds a bookmark for `index` and writes the whole file. Returns how many bookmarks the
     /// file has now. `time` is unix seconds.
     ///
@@ -137,6 +161,19 @@ impl LockedBookmarks {
         label: &str,
         index: PageIndex,
     ) -> Result<usize, SaveError> {
+        self.push_and_write(files, time, label, index, false)
+    }
+
+    /// The work of [`add`](Self::add) and [`start`](Self::start). `create` writes with
+    /// `write_new` instead of `write_replace`.
+    fn push_and_write(
+        &mut self,
+        files: &dyn Files,
+        time: u64,
+        label: &str,
+        index: PageIndex,
+        create: bool,
+    ) -> Result<usize, SaveError> {
         if let Some(at) = self.file.find(&index) {
             let existing = self.file.bookmarks()[at].label().to_string();
             return Err(SaveError::Duplicate { label: existing });
@@ -148,7 +185,13 @@ impl LockedBookmarks {
                 other => SaveError::Refused(other),
             })?;
         let count = self.file.bookmarks().len();
-        if let Err(error) = files.write_replace(&self.path, &self.file.to_bytes()) {
+        let bytes = self.file.to_bytes();
+        let written = if create {
+            files.write_new(&self.path, &bytes)
+        } else {
+            files.write_replace(&self.path, &bytes)
+        };
+        if let Err(error) = written {
             // The bookmark just added is the last one, so this cannot be out of range.
             let _ = self.file.remove(count - 1);
             return Err(SaveError::Write {
@@ -183,6 +226,39 @@ fn largest_file() -> usize {
     let largest = BookmarkSettings::new(LibraryConfig::LARGE, BookmarkKey::Canonical);
     // `LARGE` is a preset, so this cannot be an error; the fallback is a generous number.
     largest.map_or(128 << 20, |settings| BookmarkFile::max_bytes(&settings))
+}
+
+/// Why `file` cannot be used by a session in `session`'s library, as a message for the prompt,
+/// or `None` if it can. A session is locked to one library, so the file must be for exactly it.
+pub fn library_mismatch(
+    path: &Path,
+    file: &BookmarkSettings,
+    session: &BookmarkSettings,
+) -> Option<String> {
+    let name = path.display();
+    if file.size() != session.size() {
+        return Some(format!(
+            "{name} is a {} library, but this session is {}",
+            size_name(file.size()),
+            size_name(session.size())
+        ));
+    }
+    match (file.key(), session.key()) {
+        (BookmarkKey::Canonical, BookmarkKey::Canonical) => None,
+        (BookmarkKey::Canonical, BookmarkKey::Custom(_)) => Some(format!(
+            "{name} is a canonical library, but this session uses a private key"
+        )),
+        (BookmarkKey::Custom(fingerprint), BookmarkKey::Canonical) => Some(format!(
+            "{name} is for the key with fingerprint {}, but this session is canonical",
+            fingerprint_groups(&fingerprint)
+        )),
+        (BookmarkKey::Custom(theirs), BookmarkKey::Custom(ours)) if theirs == ours => None,
+        (BookmarkKey::Custom(theirs), BookmarkKey::Custom(ours)) => Some(format!(
+            "{name} is for the key with fingerprint {}, but this session's key has {}",
+            fingerprint_groups(&theirs),
+            fingerprint_groups(&ours)
+        )),
+    }
 }
 
 /// Why a bookmark could not be added. Every one of these is shown inline and the session
@@ -472,5 +548,69 @@ mod test {
         let bytes = BookmarkFile::new(settings).to_bytes();
         let (_, locked) = open(&bytes, None, None).unwrap();
         assert!(locked.file().bookmarks().is_empty());
+    }
+
+    fn settings_for(size: LibraryConfig, key: BookmarkKey) -> BookmarkSettings {
+        BookmarkSettings::new(size, key).unwrap()
+    }
+
+    #[test]
+    fn a_file_must_be_for_exactly_the_session_library() {
+        let path = Path::new("f.babelbookmark");
+        let canonical = |size| settings_for(size, BookmarkKey::Canonical);
+        let ours = BookmarkKey::Custom([1; FINGERPRINT_LEN]);
+        let theirs = BookmarkKey::Custom([2; FINGERPRINT_LEN]);
+
+        assert_eq!(
+            library_mismatch(
+                path,
+                &canonical(LibraryConfig::SMALL),
+                &canonical(LibraryConfig::SMALL)
+            ),
+            None
+        );
+        assert_eq!(
+            library_mismatch(
+                path,
+                &settings_for(LibraryConfig::SMALL, ours),
+                &settings_for(LibraryConfig::SMALL, ours)
+            ),
+            None
+        );
+        assert_eq!(
+            library_mismatch(
+                path,
+                &canonical(LibraryConfig::LARGE),
+                &canonical(LibraryConfig::SMALL)
+            )
+            .unwrap(),
+            "f.babelbookmark is a large library, but this session is small"
+        );
+        assert_eq!(
+            library_mismatch(
+                path,
+                &canonical(LibraryConfig::SMALL),
+                &settings_for(LibraryConfig::SMALL, ours)
+            )
+            .unwrap(),
+            "f.babelbookmark is a canonical library, but this session uses a private key"
+        );
+        assert_eq!(
+            library_mismatch(
+                path,
+                &settings_for(LibraryConfig::SMALL, ours),
+                &canonical(LibraryConfig::SMALL)
+            )
+            .unwrap(),
+            "f.babelbookmark is for the key with fingerprint 0101-0101-0101-0101, but this session is canonical"
+        );
+        let message = library_mismatch(
+            path,
+            &settings_for(LibraryConfig::SMALL, theirs),
+            &settings_for(LibraryConfig::SMALL, ours),
+        )
+        .unwrap();
+        assert!(message.contains("0202-0202-0202-0202"), "{message}");
+        assert!(message.contains("0101-0101-0101-0101"), "{message}");
     }
 }

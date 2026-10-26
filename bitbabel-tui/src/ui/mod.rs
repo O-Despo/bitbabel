@@ -387,6 +387,37 @@ mod test {
     }
 
     #[test]
+    fn the_first_bookmark_asks_for_a_file_then_a_label_that_says_it_locks_the_session() {
+        let mut app = App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+                bookmarks: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        )
+        .unwrap();
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_key(key('b'));
+        for c in "my-long-folder/favourites".chars() {
+            app.handle_key(key(c));
+        }
+        let file_step = render(&app, 80, 24);
+        assert!(file_step.contains("bookmark file"));
+        assert!(file_step.contains("keep bookmarks in which file?"));
+        assert!(file_step.contains("> my-long-folder/favourites"));
+        assert!(file_step.contains("enter next   esc cancel"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        // The long label question wraps inside the box instead of being cut off.
+        let label_step = render(&app, 80, 24);
+        assert!(label_step.contains("my-long-folder/favourites.babelbookmark"));
+        assert!(label_step.contains("session to this library"));
+        assert!(label_step.contains("enter save   esc back"));
+    }
+
+    #[test]
     fn the_help_screen_lists_every_key_from_the_key_map() {
         let mut app = App::new(
             TuiConfig {

@@ -4,6 +4,7 @@
 use bitbabel_core::{
     BabelLibrary, Encoding, FINGERPRINT_LEN, Hex, Key, LibraryConfig, LibraryError,
 };
+use bitbabel_file::{BookmarkError, BookmarkKey, BookmarkSettings};
 
 /// A size and a key: the pair that names one library.
 #[derive(Debug, Clone)]
@@ -28,6 +29,21 @@ impl LibraryChoice {
     #[cfg(test)]
     pub fn key(&self) -> Option<&Key> {
         self.key.as_ref()
+    }
+
+    /// The bookmark file settings that name this library: its size, and `Canonical` or the
+    /// private key's fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// [`BookmarkError::NotAPreset`] if the size is not a preset. A bookmark file header can
+    /// only name the presets.
+    pub fn bookmark_settings(&self) -> Result<BookmarkSettings, BookmarkError> {
+        let key = match &self.key {
+            Some(key) => BookmarkKey::Custom(key.fingerprint()),
+            None => BookmarkKey::Canonical,
+        };
+        BookmarkSettings::new(self.size, key)
     }
 
     /// The library itself, ready to map indexes to pages.
