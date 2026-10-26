@@ -507,6 +507,70 @@ mod test {
         assert!(after.contains("enter search"));
     }
 
+    fn searching_app() -> App {
+        App::new(
+            TuiConfig {
+                size: Some(LibraryConfig::SMALL),
+                key: None,
+                bookmarks: None,
+            },
+            fake_random,
+            Box::new(MemFiles::default()),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_long_needle_shows_its_end_and_keeps_the_byte_count() {
+        let mut app = searching_app();
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_key(key('/'));
+        for c in "the quick brown fox jumps over the lazy dog and keeps on running".chars() {
+            app.handle_key(key(c));
+        }
+        let screen = render(&app, 80, 24);
+        let line = screen.lines().find(|l| l.contains("needle:")).unwrap();
+        assert!(line.contains("needle: …"), "{line}");
+        assert!(line.contains("keeps on running▏"), "{line}");
+        assert!(line.contains("(64 bytes)"), "{line}");
+        assert!(!line.contains("the quick"), "{line}");
+        // The whole line, count included, stays inside the box.
+        assert!(line.trim_end().ends_with('│'), "{line}");
+    }
+
+    #[test]
+    fn a_short_needle_is_drawn_whole() {
+        let mut app = searching_app();
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_key(key('/'));
+        for c in "hello".chars() {
+            app.handle_key(key(c));
+        }
+        let screen = render(&app, 80, 24);
+        let line = screen.lines().find(|l| l.contains("needle:")).unwrap();
+        assert!(line.contains("needle: hello▏  (5 bytes)"), "{line}");
+        assert!(!line.contains('…'), "{line}");
+    }
+
+    #[test]
+    fn a_needle_of_wide_characters_keeps_the_byte_count_too() {
+        let mut app = searching_app();
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        // The utf8 view takes the text as it is. `e` goes text, hex, base64, utf8.
+        for _ in 0..3 {
+            app.handle_key(key('e'));
+        }
+        app.handle_key(key('/'));
+        for _ in 0..40 {
+            app.handle_key(key('日'));
+        }
+        let screen = render(&app, 80, 24);
+        let line = screen.lines().find(|l| l.contains("needle:")).unwrap();
+        assert!(line.contains("(120 bytes)"), "{line}");
+        assert!(line.contains("needle: …"), "{line}");
+        assert!(line.trim_end().ends_with('│'), "{line}");
+    }
+
     #[test]
     fn the_search_overlay_shows_a_needle_error_inline() {
         let mut app = App::new(
