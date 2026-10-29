@@ -4,19 +4,12 @@ use std::io;
 use std::path::Path;
 
 use bitbabel_core::{Key, LibraryConfig};
+use bitbabel_explorer::{LibraryChoice, SIZES, fingerprint_text};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use super::effect::Effect;
-use super::library::{LibraryChoice, fingerprint_text};
 use super::typed_char;
 use crate::files::Files;
-
-/// The sizes the screen offers, in order.
-pub const SIZES: [LibraryConfig; 3] = [
-    LibraryConfig::SMALL,
-    LibraryConfig::MEDIUM,
-    LibraryConfig::LARGE,
-];
 
 /// A key file is exactly this long.
 const KEY_FILE_LEN: usize = 32;

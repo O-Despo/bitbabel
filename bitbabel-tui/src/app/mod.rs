@@ -4,7 +4,6 @@
 mod bookmark_list;
 mod effect;
 mod explore;
-mod library;
 mod prompt;
 mod search;
 mod session;
@@ -15,12 +14,12 @@ mod viewport;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+pub use bitbabel_explorer::{LibraryChoice, SIZES, fingerprint_groups, fingerprint_text};
 pub use effect::Effect;
-pub use library::{LibraryChoice, fingerprint_groups, fingerprint_text};
 pub use prompt::Prompt;
 pub use search::{RESULTS, SearchForm};
 pub use session::Session;
-pub use setup::{KeySource, KeyStatus, Row, SIZES, SetupForm, loaded_text};
+pub use setup::{KeySource, KeyStatus, Row, SetupForm, loaded_text};
 
 use crate::bookmarks::{Bookmarks, LockedBookmarks, StartError};
 use crate::clock::{NowFn, system_now};

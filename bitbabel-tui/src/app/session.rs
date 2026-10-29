@@ -5,12 +5,12 @@ use std::ops::Range;
 use bitbabel_core::{Cursor, LibraryError, PageIndex};
 
 use super::bookmark_list::BookmarkList;
-use super::library::LibraryChoice;
 use super::prompt::{Prompt, PromptKind};
 use super::search::SearchForm;
 use super::viewport::Viewport;
 use crate::bookmarks::{Bookmarks, SaveError};
 use crate::files::Files;
+use bitbabel_explorer::LibraryChoice;
 use bitbabel_explorer::{DisplayLine, History, View, render};
 
 /// One session in one library.

@@ -10,6 +10,7 @@ fn public_types_are_send_and_sync() {
     assert_send_sync::<Segment>();
     assert_send_sync::<DisplayLine>();
     assert_send_sync::<History>();
+    assert_send_sync::<LibraryChoice>();
 }
 
 #[test]
