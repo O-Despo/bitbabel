@@ -1,5 +1,5 @@
-//! The size and key choices of a `LibraryForm`, drawn the same on every screen that picks a
-//! library. Each screen keeps the form and gives these the changes to make.
+//! The size and key choices of a `LibraryForm`, and the key file panel, drawn the same on every
+//! screen that uses them. Each screen keeps its form and gives these the changes to make.
 
 use bitbabel_core::LibraryConfig;
 use bitbabel_explorer::SIZES;
@@ -46,12 +46,58 @@ pub fn SizeFields(props: &LibraryFieldsProps) -> Html {
     html! { <div class="cards three">{ for sizes }</div> }
 }
 
-/// Canonical or private, and for private, the key file button and what reading it found.
+/// What the key file panel needs.
+#[derive(Properties, PartialEq)]
+pub struct KeyFilePanelProps {
+    /// Whether the key read so far is usable, and what to say about it. `None` until a file is
+    /// chosen.
+    pub line: Option<(bool, String)>,
+    /// Called with the chosen file's name and its bytes, or why they could not be read.
+    pub on_read: Callback<(String, Result<Vec<u8>, String>)>,
+}
+
+/// The key file button, what reading it found, and the note that the key is never shown.
 #[component]
-pub fn KeyFields(props: &LibraryFieldsProps) -> Html {
+pub fn KeyFilePanel(props: &KeyFilePanelProps) -> Html {
     // A file read stops if its reader is dropped, so the reader is kept here until it is done.
     let reader = use_mut_ref(|| None::<FileReader>);
 
+    let on_file = {
+        let on_read = props.on_read.clone();
+        Callback::from(move |event: Event| {
+            let Some(file) = browser::chosen_file(&event) else {
+                return;
+            };
+            let name = file.name();
+            let on_read = on_read.clone();
+            let task = read_as_bytes(&file, move |bytes| {
+                on_read.emit((name, bytes.map_err(|error| error.to_string())));
+            });
+            *reader.borrow_mut() = Some(task);
+        })
+    };
+
+    let line = props.line.as_ref().map(|(ok, text)| {
+        let class = if *ok { "note" } else { "err" };
+        html! { <p class={class}>{ text.clone() }</p> }
+    });
+    html! {
+        <div class="panel">
+            <label class="act">
+                { "[ choose key file ]" }
+                <input type="file" onchange={on_file} />
+            </label>
+            { line }
+            <p class="note">
+                { "The key itself is never shown, only its fingerprint. New key: bitbabel keygen my.key" }
+            </p>
+        </div>
+    }
+}
+
+/// Canonical or private, and for private, the key file panel.
+#[component]
+pub fn KeyFields(props: &LibraryFieldsProps) -> Html {
     let source = |source: KeySource, title: &'static str, text: &'static str| {
         let onclick = props
             .on_action
@@ -64,41 +110,11 @@ pub fn KeyFields(props: &LibraryFieldsProps) -> Html {
         }
     };
 
-    let on_file = {
-        let on_action = props.on_action.clone();
-        Callback::from(move |event: Event| {
-            let Some(file) = browser::chosen_file(&event) else {
-                return;
-            };
-            let name = file.name();
-            let on_action = on_action.clone();
-            let task = read_as_bytes(&file, move |bytes| {
-                on_action.emit(FormAction::KeyRead {
-                    name,
-                    bytes: bytes.map_err(|error| error.to_string()),
-                });
-            });
-            *reader.borrow_mut() = Some(task);
-        })
-    };
-
     let key_panel = (props.form.source() == KeySource::Private).then(|| {
-        let line = props.form.key_line().map(|(ok, text)| {
-            let class = if ok { "note" } else { "err" };
-            html! { <p class={class}>{ text }</p> }
-        });
-        html! {
-            <div class="panel">
-                <label class="act">
-                    { "[ choose key file ]" }
-                    <input type="file" onchange={on_file} />
-                </label>
-                { line }
-                <p class="note">
-                    { "The key itself is never shown, only its fingerprint. New key: bitbabel keygen my.key" }
-                </p>
-            </div>
-        }
+        let on_read = props
+            .on_action
+            .reform(|(name, bytes)| FormAction::KeyRead { name, bytes });
+        html! { <KeyFilePanel line={props.form.key_line()} {on_read} /> }
     });
 
     html! {
