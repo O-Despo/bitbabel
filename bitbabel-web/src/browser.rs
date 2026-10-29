@@ -54,6 +54,15 @@ pub fn random_bytes(len: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// The time now in unix seconds, from the browser's clock.
+pub fn now_secs() -> u64 {
+    let Some(performance) = web_sys::window().and_then(|window| window.performance()) else {
+        return 0;
+    };
+    // Milliseconds since 1970 (the page's start time plus the time since then).
+    ((performance.time_origin() + performance.now()) / 1000.0) as u64
+}
+
 /// Puts `text` on the clipboard, or says why it could not. Browsers only allow this from a
 /// click on a page served over https or from localhost.
 pub async fn copy_text(text: &str) -> Result<(), String> {

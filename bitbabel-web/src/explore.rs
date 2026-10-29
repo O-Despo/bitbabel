@@ -63,7 +63,6 @@ impl Explore {
     }
 
     /// The index of the page shown.
-    #[cfg(test)]
     pub fn index(&self) -> &PageIndex {
         &self.index
     }

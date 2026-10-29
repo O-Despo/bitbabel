@@ -7,6 +7,8 @@ use gloo_file::callbacks::{FileReader, read_as_text};
 use web_sys::{Element, HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 
+use crate::bookmark_modal::BookmarkModal;
+use crate::bookmarks::Bookmarks;
 use crate::browser;
 use crate::components::{Action, Choice, Modal};
 use crate::download::data_link;
@@ -18,6 +20,7 @@ pub struct ExplorePageProps {
     pub explore: UseReducerHandle<Slot>,
     /// The library to open if nothing is open yet.
     pub library: LibraryChoice,
+    pub marks: UseStateHandle<Bookmarks>,
 }
 
 /// A run of page text, with the marked part inverted.
@@ -43,6 +46,7 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
     let explore = props.explore.clone();
     let search = use_state(String::new);
     let goto = use_state(|| None::<GoTo>);
+    let ask = use_state(|| false);
     // A file read stops if its reader is dropped, so the reader is kept here until it is done.
     let reader = use_mut_ref(|| None::<FileReader>);
 
@@ -301,6 +305,37 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
         }
     });
 
+    let open_ask = {
+        let ask = ask.clone();
+        Callback::from(move |_: MouseEvent| ask.set(true))
+    };
+    let ask_modal = (*ask).then(|| {
+        let on_close = {
+            let ask = ask.clone();
+            Callback::from(move |()| ask.set(false))
+        };
+        let on_saved = {
+            let ask = ask.clone();
+            let explore = explore.clone();
+            Callback::from(move |()| {
+                ask.set(false);
+                explore.dispatch(ExploreAction::Say {
+                    text: "bookmarked this page".to_string(),
+                    error: false,
+                });
+            })
+        };
+        html! {
+            <BookmarkModal
+                marks={props.marks.clone()}
+                library={open.library().clone()}
+                index={open.index().clone()}
+                {on_close}
+                {on_saved}
+            />
+        }
+    });
+
     html! {
         <main class="explore">
             <div class="command">
@@ -323,6 +358,7 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
                 <span>
                     <Action label="copy" onclick={copy} />
                     <a class="act" download={file_name} href={data_link(&contents)}>{ "[ save ]" }</a>
+                    <Action label="bookmark" onclick={open_ask} />
                 </span>
                 <span class="views">{ "encode: " }{ for views }</span>
             </div>
@@ -336,6 +372,7 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
                 <div class="text">{ for lines }</div>
             </div>
             { modal }
+            { ask_modal }
         </main>
     }
 }
