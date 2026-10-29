@@ -37,15 +37,20 @@ impl Bookmarks {
             Bookmarks::Free => "no bookmark file".to_string(),
             Bookmarks::Locked(locked) => {
                 let name = locked.name();
-                let name = if name.chars().count() > TITLE_NAME_CHARS {
-                    let kept: String = name.chars().take(TITLE_NAME_CHARS - 1).collect();
-                    format!("{kept}…")
-                } else {
-                    name
-                };
-                format!("locked: {name} ({})", locked.file().bookmarks().len())
+                format!("locked: {} ({})", short_name(&name), locked.count())
             }
         }
+    }
+}
+
+/// The file name as a title shows it: [`TITLE_NAME_CHARS`] characters at most, the rest cut
+/// off with `…`. Shared by the title bar and the `B` list box.
+pub(crate) fn short_name(name: &str) -> String {
+    if name.chars().count() > TITLE_NAME_CHARS {
+        let kept: String = name.chars().take(TITLE_NAME_CHARS - 1).collect();
+        format!("{kept}…")
+    } else {
+        name.to_string()
     }
 }
 
@@ -202,6 +207,76 @@ impl LockedBookmarks {
         Ok(count)
     }
 
+    /// Opens `file`, already on disk at `path`, for this session by renaming its bookmark at
+    /// `position` to `label`. This is the first bookmark of a session landing on a page the
+    /// file already holds: the page keeps its one bookmark and gets the new label. Nothing is
+    /// kept if the write fails: the caller still has no bookmark file.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`], as for [`rename`](Self::rename).
+    pub fn start_renaming(
+        files: &dyn Files,
+        path: PathBuf,
+        file: BookmarkFile,
+        position: usize,
+        label: &str,
+    ) -> Result<LockedBookmarks, SaveError> {
+        let mut locked = LockedBookmarks { path, file };
+        locked.rename(files, position, label)?;
+        Ok(locked)
+    }
+
+    /// Renames the bookmark at `position` to `label` and writes the whole file. Its time and
+    /// index stay. Like [`add`](Self::add): the file is written before the change is kept, so
+    /// a failed write leaves the list as it was (§13.3b).
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`] as for [`add`](Self::add): [`Refused`](SaveError::Refused) if the label
+    /// is not one a label may hold, or there is no bookmark at `position`.
+    pub fn rename(
+        &mut self,
+        files: &dyn Files,
+        position: usize,
+        label: &str,
+    ) -> Result<(), SaveError> {
+        self.write_through(files, |file| file.rename(position, label))
+    }
+
+    /// Removes the bookmark at `position` and writes the whole file, at once and without
+    /// asking again: the page is still reachable by its index (§13.3). Later bookmarks move
+    /// up by one. Like [`add`](Self::add), a failed write leaves the list as it was.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`] as for [`add`](Self::add): [`Refused`](SaveError::Refused) if there is
+    /// no bookmark at `position`.
+    pub fn remove(&mut self, files: &dyn Files, position: usize) -> Result<(), SaveError> {
+        self.write_through(files, |file| file.remove(position).map(|_| ()))
+    }
+
+    /// The write-through pattern for a change of the list: apply it to a copy, write the
+    /// copy, and only then swap it in — after every change the in-memory list is what is on
+    /// disk.
+    fn write_through(
+        &mut self,
+        files: &dyn Files,
+        change: impl FnOnce(&mut BookmarkFile) -> Result<(), BookmarkError>,
+    ) -> Result<(), SaveError> {
+        let mut changed = self.file.clone();
+        change(&mut changed).map_err(SaveError::Refused)?;
+        let bytes = changed.to_bytes();
+        files
+            .write_replace(&self.path, &bytes)
+            .map_err(|error| SaveError::Write {
+                path: self.path.clone(),
+                error,
+            })?;
+        self.file = changed;
+        Ok(())
+    }
+
     /// The file's name without its extension: `favs` for `dir/favs.babelbookmark`.
     pub fn name(&self) -> String {
         let stem = self.path.file_stem().unwrap_or(self.path.as_os_str());
@@ -216,6 +291,11 @@ impl LockedBookmarks {
     /// The bookmarks in it.
     pub fn file(&self) -> &BookmarkFile {
         &self.file
+    }
+
+    /// How many bookmarks the file holds.
+    pub fn count(&self) -> usize {
+        self.file.bookmarks().len()
     }
 }
 
@@ -387,7 +467,7 @@ mod test {
     use bitbabel_core::PageIndex;
 
     use super::*;
-    use crate::files::MemFiles;
+    use crate::files::{FailingFiles, MemFiles};
 
     const PATH: &str = "favs.babelbookmark";
 
@@ -612,5 +692,114 @@ mod test {
         .unwrap();
         assert!(message.contains("0202-0202-0202-0202"), "{message}");
         assert!(message.contains("0101-0101-0101-0101"), "{message}");
+    }
+
+    fn locked_medium(files: &MemFiles) -> LockedBookmarks {
+        let (_, locked) = LockedBookmarks::open(files, Path::new(PATH), None, None).unwrap();
+        locked
+    }
+
+    #[test]
+    fn a_rename_keeps_the_time_and_writes_the_new_label_through() {
+        let files = MemFiles::default().with(PATH, &medium_canonical());
+        let mut locked = locked_medium(&files);
+        locked.rename(&files, 0, "renamed").unwrap();
+        assert_eq!(locked.file().bookmarks()[0].label(), "renamed");
+        // Only the label changed.
+        assert_eq!(locked.file().bookmarks()[0].time(), 1);
+        let on_disk = BookmarkFile::from_bytes(&files.get(PATH).unwrap()).unwrap();
+        assert_eq!(
+            on_disk.bookmarks()[0].label(),
+            "renamed",
+            "the file was not rewritten"
+        );
+    }
+
+    #[test]
+    fn a_rename_that_cannot_be_written_leaves_memory_and_disk_as_they_were() {
+        let bytes = medium_canonical();
+        let files = FailingFiles::default().with(PATH, &bytes);
+        files.fail_writes(true);
+        let mut locked = {
+            let mem = MemFiles::default().with(PATH, &bytes);
+            locked_medium(&mem)
+        };
+        let error = locked.rename(&files, 0, "gone").unwrap_err();
+        assert!(matches!(error, SaveError::Write { .. }), "{error}");
+        assert_eq!(locked.file().bookmarks()[0].label(), "first");
+        assert_eq!(files.get(PATH).unwrap(), bytes);
+    }
+
+    #[test]
+    fn rename_refuses_a_position_past_the_list_and_a_bad_label_without_touching_anything() {
+        let bytes = medium_canonical();
+        let files = MemFiles::default().with(PATH, &bytes);
+        let mut locked = locked_medium(&files);
+        assert!(matches!(
+            locked.rename(&files, 5, "x"),
+            Err(SaveError::Refused(BookmarkError::NoSuchBookmark { .. }))
+        ));
+        // The label prompt never types these, but the method must still refuse them.
+        assert!(matches!(
+            locked.rename(&files, 0, "bad\tlabel"),
+            Err(SaveError::Refused(BookmarkError::Invalid { .. }))
+        ));
+        assert_eq!(locked.file().bookmarks()[0].label(), "first");
+        assert_eq!(files.get(PATH).unwrap(), bytes);
+    }
+
+    #[test]
+    fn a_remove_writes_the_shorter_list_through() {
+        // A file with two bookmarks.
+        let settings =
+            BookmarkSettings::new(LibraryConfig::MEDIUM, BookmarkKey::Canonical).unwrap();
+        let mut file = BookmarkFile::new(settings);
+        file.push(1, "gone", PageIndex::from_u64(1, 3200)).unwrap();
+        file.push(2, "kept", PageIndex::from_u64(2, 3200)).unwrap();
+        let files = MemFiles::default().with(PATH, &file.to_bytes());
+        let (_, mut locked) = LockedBookmarks::open(&files, Path::new(PATH), None, None).unwrap();
+        locked.remove(&files, 0).unwrap();
+        let labels: Vec<_> = locked
+            .file()
+            .bookmarks()
+            .iter()
+            .map(|mark| mark.label())
+            .collect();
+        assert_eq!(labels, ["kept"]);
+        let on_disk = BookmarkFile::from_bytes(&files.get(PATH).unwrap()).unwrap();
+        assert_eq!(on_disk.bookmarks().len(), 1);
+        assert_eq!(
+            on_disk.bookmarks()[0].time(),
+            2,
+            "the wrong row was written"
+        );
+    }
+
+    #[test]
+    fn a_remove_that_cannot_be_written_keeps_memory_and_disk() {
+        let bytes = medium_canonical();
+        let files = FailingFiles::default().with(PATH, &bytes);
+        files.fail_writes(true);
+        let mut locked = {
+            let mem = MemFiles::default().with(PATH, &bytes);
+            locked_medium(&mem)
+        };
+        assert!(matches!(
+            locked.remove(&files, 0),
+            Err(SaveError::Write { .. })
+        ));
+        assert_eq!(locked.count(), 1);
+        assert_eq!(files.get(PATH).unwrap(), bytes);
+    }
+
+    #[test]
+    fn remove_refuses_a_position_past_the_list() {
+        let files = MemFiles::default().with(PATH, &medium_canonical());
+        let mut locked = locked_medium(&files);
+        assert!(matches!(
+            locked.remove(&files, 1),
+            Err(SaveError::Refused(BookmarkError::NoSuchBookmark { .. }))
+        ));
+        assert_eq!(locked.count(), 1);
     }
 }

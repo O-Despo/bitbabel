@@ -123,6 +123,31 @@ pub fn fixed_now() -> u64 {
     1_790_000_000
 }
 
+/// A canonical [`MARKS`] file of `size` with `count` bookmarks: page `n + 1`, labelled
+/// `mark n`, one minute apart starting at `2026-10-01 00:00Z`.
+pub fn marks_bytes(size: LibraryConfig, count: usize) -> Vec<u8> {
+    use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+    let settings = BookmarkSettings::new(size, BookmarkKey::Canonical).unwrap();
+    let mut file = BookmarkFile::new(settings);
+    for n in 0..count {
+        let index = PageIndex::from_u64(n as u64 + 1, size.page_len());
+        file.push(1_790_812_800 + (n as u64) * 60, &format!("mark {n}"), index)
+            .unwrap();
+    }
+    file.to_bytes()
+}
+
+/// An app locked to [`MARKS`], a file of `size` with `count` bookmarks.
+pub fn marks_app(size: LibraryConfig, count: usize) -> App {
+    marks_app_with_files(size, count).0
+}
+
+/// The same app, and a handle on its files to look at what was written.
+pub fn marks_app_with_files(size: LibraryConfig, count: usize) -> (App, Arc<MemFiles>) {
+    let files = Arc::new(MemFiles::default().with(MARKS, &marks_bytes(size, count)));
+    (bookmarked_app(files.clone()), files)
+}
+
 /// An app locked to [`MARKS`] in `files`, which must hold the file. The test keeps its own
 /// handle on `files` to look at what was written.
 pub fn bookmarked_app<F: Files + 'static>(files: Arc<F>) -> App {
