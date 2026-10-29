@@ -186,6 +186,7 @@ version = "0.1.0"
 dependencies = [
  "bitbabel-core",
  "bitbabel-explorer",
+ "bitbabel-file",
  "gloo-file",
  "wasm-bindgen",
  "wasm-bindgen-futures",

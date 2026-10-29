@@ -1,5 +1,6 @@
 //! The BitBabel website. A Yew app compiled to WebAssembly, served as static files.
 
+mod bookmarks;
 mod browser;
 mod components;
 mod download;

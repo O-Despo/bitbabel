@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 bitbabel-core = { version = "0.1.0", path = "../bitbabel-core" }
 bitbabel-explorer = { version = "0.1.0", path = "../bitbabel-explorer" }
+bitbabel-file = { version = "0.1.0", path = "../bitbabel-file" }
 gloo-file = "0.3"
 wasm-bindgen = "0.2.129"
 wasm-bindgen-futures = "0.4.79"
