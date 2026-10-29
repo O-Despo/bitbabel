@@ -108,19 +108,20 @@ impl LibraryForm {
             (KeySource::Private, KeyFile::None) => Err("choose a key file first".to_string()),
         }
     }
+}
 
-    /// Reads the bytes of a key file. The wording matches the CLI's.
-    fn load_key(&mut self, name: &str, bytes: Result<Vec<u8>, String>) {
-        self.key_file = match bytes {
-            Ok(bytes) => match Key::from_slice(&bytes) {
-                Ok(key) => KeyFile::Loaded {
-                    name: name.to_string(),
-                    key,
-                },
-                Err(error) => KeyFile::Failed(format!("bad key in {name}: {error}")),
+/// What the bytes of the key file called `name` hold: a key, or why there is none. The
+/// wording matches the CLI's.
+pub(crate) fn read_key(name: &str, bytes: Result<Vec<u8>, String>) -> KeyFile {
+    match bytes {
+        Ok(bytes) => match Key::from_slice(&bytes) {
+            Ok(key) => KeyFile::Loaded {
+                name: name.to_string(),
+                key,
             },
-            Err(error) => KeyFile::Failed(format!("cannot read {name}: {error}")),
-        };
+            Err(error) => KeyFile::Failed(format!("bad key in {name}: {error}")),
+        },
+        Err(error) => KeyFile::Failed(format!("cannot read {name}: {error}")),
     }
 }
 
@@ -132,7 +133,7 @@ impl Reducible for LibraryForm {
         match action {
             FormAction::Size(size) => next.size = size,
             FormAction::Source(source) => next.source = source,
-            FormAction::KeyRead { name, bytes } => next.load_key(&name, bytes),
+            FormAction::KeyRead { name, bytes } => next.key_file = read_key(&name, bytes),
         }
         Rc::new(next)
     }
