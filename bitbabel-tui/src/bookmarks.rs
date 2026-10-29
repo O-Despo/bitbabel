@@ -315,30 +315,7 @@ pub fn library_mismatch(
     file: &BookmarkSettings,
     session: &BookmarkSettings,
 ) -> Option<String> {
-    let name = path.display();
-    if file.size() != session.size() {
-        return Some(format!(
-            "{name} is a {} library, but this session is {}",
-            size_name(file.size()),
-            size_name(session.size())
-        ));
-    }
-    match (file.key(), session.key()) {
-        (BookmarkKey::Canonical, BookmarkKey::Canonical) => None,
-        (BookmarkKey::Canonical, BookmarkKey::Custom(_)) => Some(format!(
-            "{name} is a canonical library, but this session uses a private key"
-        )),
-        (BookmarkKey::Custom(fingerprint), BookmarkKey::Canonical) => Some(format!(
-            "{name} is for the key with fingerprint {}, but this session is canonical",
-            fingerprint_groups(&fingerprint)
-        )),
-        (BookmarkKey::Custom(theirs), BookmarkKey::Custom(ours)) if theirs == ours => None,
-        (BookmarkKey::Custom(theirs), BookmarkKey::Custom(ours)) => Some(format!(
-            "{name} is for the key with fingerprint {}, but this session's key has {}",
-            fingerprint_groups(&theirs),
-            fingerprint_groups(&ours)
-        )),
-    }
+    bitbabel_explorer::library_mismatch(&path.display().to_string(), file, session)
 }
 
 /// Why a bookmark could not be added. Every one of these is shown inline and the session
