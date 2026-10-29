@@ -376,7 +376,8 @@ section h2 {
   cursor: pointer;
 }
 
-.modal input[type="file"] {
+.modal input[type="file"],
+.marks-page input[type="file"] {
   display: none;
 }
 
@@ -448,4 +449,168 @@ section h2 {
 .result:hover .hit {
   background: var(--paper);
   color: var(--ink);
+}
+
+/* Bookmarks: a centered column. */
+.marks-page {
+  max-width: 880px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+}
+
+.marks-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.marks-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.none {
+  padding: 28px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.refused {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--error);
+  color: var(--error);
+  line-height: 1.6;
+}
+
+.marks-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ink);
+  font-size: 12px;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 12px;
+}
+
+.mark {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 140px minmax(0, 200px) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 9px 12px;
+  border-top: 1px solid var(--faint);
+  cursor: pointer;
+}
+
+.mark .label,
+.mark .where-short {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark .when,
+.mark .where-short,
+.mark .act {
+  font-size: 12px;
+}
+
+.mark-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.mark.sel {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* On the inverted row a hovered button is turned back. */
+.mark.sel .act:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.mark .rename {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid currentColor;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+
+.raw {
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--ink);
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 3;
+  white-space: pre;
+}
+
+@media (max-width: 640px) {
+  .mark {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+  }
+
+  .mark .when,
+  .mark .where-short {
+    display: none;
+  }
+}
+
+/* Space between the stacked items of a popup. */
+.modal-body > * + * {
+  margin-top: 12px;
+}
+
+.faint {
+  color: var(--ghost);
+}
+
+/* A labelled input in a popup. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  font-size: 12px;
+}
+
+.field-head {
+  display: flex;
+  justify-content: space-between;
+}
+
+.field input {
+  padding: 8px 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.modal .refused {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
 }
