@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 
 use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::text::Span;
 
 use bitbabel_file::{BookmarkFile, MAX_LABEL_CHARS, is_label_char};
 
 use super::effect::Effect;
+use super::search::SearchForm;
 use super::session::Session;
 use super::{App, Mode, typed_char};
 use crate::bookmarks::{Bookmarks, LockedBookmarks, library_mismatch};
@@ -28,6 +30,8 @@ pub enum PromptKind {
     /// The file to keep bookmarks in, asked for the first time a session bookmarks a page. The
     /// label comes next, and nothing is written until that is confirmed.
     BookmarkFile,
+    /// A new label for an existing bookmark, opened from the `B` list over the list itself.
+    BookmarkRename,
 }
 
 /// What the first bookmark of a session carries from the file step to the label step.
@@ -41,6 +45,9 @@ struct Pending {
     existing: Option<BookmarkFile>,
     /// A label typed and then stepped back from, to show again if the user comes forward.
     label: String,
+    /// The row of `existing` that already holds this page, if one does. Enter then renames
+    /// that bookmark instead of adding a second one, which the file would refuse.
+    already_at: Option<usize>,
 }
 
 /// An open prompt.
@@ -52,7 +59,9 @@ pub struct Prompt {
     error: Option<String>,
     /// Set on the label step of the first bookmark, where the file has been chosen but not
     /// written.
-    pending: Option<Pending>,
+    pending: Option<Box<Pending>>,
+    /// The row the rename prompt edits, `Some` only for [`PromptKind::BookmarkRename`].
+    rename_at: Option<usize>,
 }
 
 impl Prompt {
@@ -62,7 +71,37 @@ impl Prompt {
             input: String::new(),
             error: None,
             pending: None,
+            rename_at: None,
         }
+    }
+
+    /// The rename prompt for row `at`, prefilled with its old label (§13.3b). The old label
+    /// is made of valid characters, so it needs no filtering.
+    pub(super) fn renaming(at: usize, old: &str) -> Self {
+        Prompt {
+            kind: PromptKind::BookmarkRename,
+            input: old.to_string(),
+            error: None,
+            pending: None,
+            rename_at: Some(at),
+        }
+    }
+
+    /// A prompt with `text` already typed in the box (§13.3b prefill).
+    pub(super) fn with_input(kind: PromptKind, text: String) -> Self {
+        Prompt {
+            kind,
+            input: text,
+            error: None,
+            pending: None,
+            rename_at: None,
+        }
+    }
+
+    /// Whether this box only accepts characters a label may hold: the bookmark label and
+    /// its rename. A new kind that forgets this method silently skips the filter (§13.3b).
+    fn is_label_box(&self) -> bool {
+        matches!(self.kind, PromptKind::Bookmark | PromptKind::BookmarkRename)
     }
 
     pub(super) fn set_error(&mut self, message: impl Into<String>) {
@@ -76,6 +115,7 @@ impl Prompt {
             PromptKind::Export => "export index",
             PromptKind::Bookmark => "bookmark",
             PromptKind::BookmarkFile => "bookmark file",
+            PromptKind::BookmarkRename => "rename",
         }
     }
 
@@ -87,11 +127,23 @@ impl Prompt {
             (PromptKind::BookmarkFile, _) => {
                 "keep bookmarks in which file? (.babelbookmark is added):".to_string()
             }
-            (PromptKind::Bookmark, Some(pending)) => format!(
-                "label for this page in {} (this locks the session to this library):",
-                pending.path.display()
-            ),
+            (PromptKind::Bookmark, Some(pending)) => match pending.already_at {
+                Some(at) => format!(
+                    "this page is bookmark {} in {}: enter gives it this label \
+                     (this locks the session to this library):",
+                    at + 1,
+                    pending.path.display()
+                ),
+                None => format!(
+                    "label for this page in {} (this locks the session to this library):",
+                    pending.path.display()
+                ),
+            },
             (PromptKind::Bookmark, None) => "label for this page (may be empty):".to_string(),
+            (PromptKind::BookmarkRename, _) => match self.rename_at {
+                Some(at) => format!("new label for bookmark {} (may be empty):", at + 1),
+                None => "new label for this bookmark (may be empty):".to_string(),
+            },
         }
     }
 
@@ -99,7 +151,11 @@ impl Prompt {
     pub fn footer(&self) -> &'static str {
         match (&self.kind, &self.pending) {
             (PromptKind::BookmarkFile, _) => "enter next   esc cancel",
-            (PromptKind::Bookmark, Some(_)) => "enter save   esc back",
+            // Both a first bookmark's label and a rename can step back: to the file step,
+            // or to the list.
+            (PromptKind::Bookmark, Some(_)) | (PromptKind::BookmarkRename, _) => {
+                "enter save   esc back"
+            }
             _ => "enter confirm   esc cancel",
         }
     }
@@ -122,8 +178,15 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
     };
     match key.code {
         KeyCode::Esc => {
+            let renaming = session
+                .prompt()
+                .is_some_and(|prompt| prompt.kind == PromptKind::BookmarkRename);
             if !step_back(session) {
                 session.close_prompt();
+                // Esc on a rename goes back to the list it opened over (§13.3b).
+                if renaming {
+                    session.open_bookmark_list();
+                }
             }
         }
         KeyCode::Enter => submit(session, app.files.as_ref(), app.now),
@@ -136,7 +199,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         _ => {
             if let (Some(c), Some(prompt)) = (typed_char(&key), session.prompt_mut()) {
                 // A label box only takes what a label may hold, so what is typed is valid.
-                let refused = prompt.kind == PromptKind::Bookmark
+                let refused = prompt.is_label_box()
                     && (!is_label_char(c) || prompt.input.chars().count() >= MAX_LABEL_CHARS);
                 if !refused {
                     prompt.input.push(c);
@@ -179,7 +242,35 @@ fn submit(session: &mut Session, files: &dyn Files, now: NowFn) {
         PromptKind::Export => export(session, files),
         PromptKind::Bookmark => add_bookmark(session, files, now()),
         PromptKind::BookmarkFile => choose_bookmark_file(session, files),
+        PromptKind::BookmarkRename => rename_bookmark(session, files),
     }
+}
+
+/// The text a new bookmark's label box starts with: `search: <needle>` when the open page
+/// is a result of the search still showing, and the library is canonical (§13.3a, review
+/// finding 4: the file is not secret, so in a private-key session the label would tell
+/// anyone what was searched). Characters a label cannot hold are dropped, and the text is
+/// cut at 60 terminal cells. Empty for any other page — then the box opens empty.
+pub(crate) fn bookmark_prefill(session: &Session) -> String {
+    if session.highlight().is_none() || !session.library().is_canonical() {
+        return String::new();
+    }
+    let Some(needle) = session.search_form().and_then(SearchForm::opened_needle) else {
+        return String::new();
+    };
+    const PREFIX: &str = "search: ";
+    const MAX_CELLS: usize = 60;
+    let mut text = String::from(PREFIX);
+    let mut width = Span::raw(PREFIX).width();
+    for c in needle.chars().filter(|c| is_label_char(*c)) {
+        let cells = Span::raw(c.to_string()).width();
+        if width + cells > MAX_CELLS {
+            break;
+        }
+        width += cells;
+        text.push(c);
+    }
+    text
 }
 
 /// Adds a bookmark for the current page, labelled with what was typed, and saves the file.
@@ -193,7 +284,7 @@ fn add_bookmark(session: &mut Session, files: &dyn Files, now: u64) {
     let pending = prompt.pending.clone();
     let index = session.index().clone();
     if let Some(pending) = pending {
-        return start_bookmarks(session, files, (now, &label, index), pending);
+        return start_bookmarks(session, files, (now, &label, index), *pending);
     }
     let Bookmarks::Locked(locked) = session.bookmarks_mut() else {
         session.set_prompt_error("no bookmark file");
@@ -208,6 +299,27 @@ fn add_bookmark(session: &mut Session, files: &dyn Files, now: u64) {
     }
 }
 
+/// The rename prompt's Enter: apply the label to a copy, write the file, and only then
+/// return to the list, which shows the new label (§13.3b). A failure keeps the prompt open
+/// with the inline error, over the unchanged list state.
+fn rename_bookmark(session: &mut Session, files: &dyn Files) {
+    let Some(prompt) = session.prompt() else {
+        return;
+    };
+    let Some(at) = prompt.rename_at else {
+        return;
+    };
+    let label = prompt.input.clone();
+    let Bookmarks::Locked(locked) = session.bookmarks_mut() else {
+        session.set_prompt_error("no bookmark file");
+        return;
+    };
+    match locked.rename(files, at, &label) {
+        Ok(()) => session.open_bookmark_list(),
+        Err(error) => session.set_prompt_error(error.to_string()),
+    }
+}
+
 /// The label step of a first bookmark: writes the file and locks the session to it. If the
 /// write fails the session is still free and both steps keep what was typed.
 fn start_bookmarks(
@@ -216,6 +328,9 @@ fn start_bookmarks(
     bookmark: (u64, &str, PageIndex),
     pending: Pending,
 ) {
+    if let (Some(file), Some(at)) = (pending.existing.clone(), pending.already_at) {
+        return rename_into_bookmarks(session, files, pending.path, file, at, bookmark.1);
+    }
     let (file, is_new) = match pending.existing {
         Some(file) => (file, false),
         None => match session.library().bookmark_settings() {
@@ -229,6 +344,30 @@ fn start_bookmarks(
             session.set_bookmarks(Bookmarks::Locked(locked));
             session.close_prompt();
             session.set_status(format!("bookmarked ({count}) · locked to {name}"));
+        }
+        Err(error) => session.set_prompt_error(error.to_string()),
+    }
+}
+
+/// The label step of a first bookmark on a page the chosen file already holds: give that
+/// bookmark the typed label, lock the session to the file, and open the `B` list on its row
+/// so the change is in view. If the write fails the session is still free, as for a new
+/// bookmark.
+fn rename_into_bookmarks(
+    session: &mut Session,
+    files: &dyn Files,
+    path: PathBuf,
+    file: BookmarkFile,
+    at: usize,
+    label: &str,
+) {
+    match LockedBookmarks::start_renaming(files, path, file, at, label) {
+        Ok(locked) => {
+            let name = locked.name();
+            session.set_bookmarks(Bookmarks::Locked(locked));
+            session.close_prompt();
+            session.set_status(format!("bookmark {} renamed · locked to {name}", at + 1));
+            session.open_bookmark_list_at(at);
         }
         Err(error) => session.set_prompt_error(error.to_string()),
     }
@@ -273,16 +412,28 @@ fn choose_bookmark_file(session: &mut Session, files: &dyn Files) {
             return session.set_prompt_error(message);
         }
     };
+    // A page the file already holds is renamed, not added again, so the box starts with its
+    // current label. Otherwise the label step keeps a stepped-back label, and where there is
+    // nothing to keep the search prefill starts it (§13.3b). The file step is never prefilled.
+    let already_at = existing
+        .as_ref()
+        .and_then(|file| file.find(session.index()));
+    let label = match (earlier_label.is_empty(), &existing, already_at) {
+        (false, _, _) => earlier_label,
+        (true, Some(file), Some(at)) => file.bookmarks()[at].label().to_string(),
+        (true, _, _) => bookmark_prefill(session),
+    };
     if let Some(prompt) = session.prompt_mut() {
         prompt.kind = PromptKind::Bookmark;
-        prompt.input = earlier_label.clone();
+        prompt.input = label.clone();
         prompt.error = None;
-        prompt.pending = Some(Pending {
+        prompt.pending = Some(Box::new(Pending {
             path,
             path_text: typed,
             existing,
-            label: earlier_label,
-        });
+            label,
+            already_at,
+        }));
     }
 }
 
@@ -1012,27 +1163,118 @@ mod test {
         assert_eq!(files.get("notes.txt").unwrap(), b"hello\n");
     }
 
-    #[test]
-    fn a_page_already_in_the_file_is_refused_on_the_label_step_with_nothing_written() {
+    /// A small canonical file whose bookmark 2 is page 0, where a new session starts.
+    fn file_holding_page_zero() -> Vec<u8> {
         use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
         let settings = BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Canonical).unwrap();
         let mut file = BookmarkFile::new(settings);
+        file.push(4, "another page", PageIndex::from_u64(9, 16))
+            .unwrap();
         file.push(5, "already here", PageIndex::zero(16)).unwrap();
-        let bytes = file.to_bytes();
+        file.to_bytes()
+    }
+
+    fn clear_box(app: &mut App) {
+        for _ in 0..200 {
+            app.handle_key(press(KeyCode::Backspace));
+        }
+    }
+
+    #[test]
+    fn a_page_already_in_the_chosen_file_says_so_and_starts_with_its_label() {
+        let files = std::sync::Arc::new(
+            MemFiles::default().with("favs.babelbookmark", &file_holding_page_zero()),
+        );
+        let mut app = free_app(files);
+        choose_file(&mut app, "favs");
+        let prompt = session_of(&app).prompt().unwrap();
+        assert!(
+            prompt
+                .label()
+                .starts_with("this page is bookmark 2 in favs.babelbookmark"),
+            "{}",
+            prompt.label()
+        );
+        assert_eq!(prompt.input(), "already here");
+        assert_eq!(prompt.footer(), "enter save   esc back");
+    }
+
+    #[test]
+    fn enter_on_a_page_the_file_holds_renames_it_locks_and_shows_it_in_the_list() {
+        let files = std::sync::Arc::new(
+            MemFiles::default().with("favs.babelbookmark", &file_holding_page_zero()),
+        );
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "favs");
+        clear_box(&mut app);
+        type_text(&mut app, "new name");
+        app.handle_key(press(KeyCode::Enter));
+
+        // Locked, and the list is open on the renamed row.
+        assert!(is_locked(&app));
+        assert!(!prompt_is_open(&app));
+        let session = session_of(&app);
+        assert!(session.bookmark_list_is_open());
+        assert_eq!(session.bookmark_list().selected(), 1);
+
+        // One bookmark for the page, with the new label and its old time; the other is kept.
+        let saved = marks_in(files.get("favs.babelbookmark").unwrap());
+        assert_eq!(saved.bookmarks().len(), 2);
+        assert_eq!(saved.bookmarks()[0].label(), "another page");
+        assert_eq!(saved.bookmarks()[1].label(), "new name");
+        assert_eq!(saved.bookmarks()[1].time(), 5);
+
+        // Closing the list shows what happened.
+        app.handle_key(press(KeyCode::Esc));
+        assert_eq!(
+            status_of(&app).unwrap().text,
+            "bookmark 2 renamed · locked to favs"
+        );
+    }
+
+    #[test]
+    fn keeping_the_old_label_still_locks_and_opens_the_list() {
+        let bytes = file_holding_page_zero();
         let files = std::sync::Arc::new(MemFiles::default().with("favs.babelbookmark", &bytes));
         let mut app = free_app(files.clone());
-        // The session starts on page 0, which is the bookmarked one.
         choose_file(&mut app, "favs");
-        type_text(&mut app, "again");
+        app.handle_key(press(KeyCode::Enter));
+        assert!(is_locked(&app));
+        assert!(session_of(&app).bookmark_list_is_open());
+        assert_eq!(files.get("favs.babelbookmark").unwrap(), bytes);
+    }
+
+    #[test]
+    fn a_failed_rename_of_a_page_the_file_holds_keeps_the_session_free() {
+        let bytes = file_holding_page_zero();
+        let files = std::sync::Arc::new(
+            crate::files::FailingFiles::default().with("favs.babelbookmark", &bytes),
+        );
+        let mut app = free_app(files.clone());
+        choose_file(&mut app, "favs");
+        clear_box(&mut app);
+        type_text(&mut app, "new name");
+        files.fail_writes(true);
         app.handle_key(press(KeyCode::Enter));
 
         assert_eq!(
             open_prompt_error(&app).unwrap(),
-            "this page is already bookmarked as \"already here\""
+            "cannot save favs.babelbookmark: No space left on device"
         );
-        assert_eq!(session_of(&app).prompt().unwrap().input(), "again");
+        assert_eq!(session_of(&app).prompt().unwrap().input(), "new name");
         assert!(!is_locked(&app));
         assert_eq!(files.get("favs.babelbookmark").unwrap(), bytes);
+
+        // Esc still steps back to the file, so another file can be chosen.
+        app.handle_key(press(KeyCode::Esc));
+        assert_eq!(session_of(&app).prompt().unwrap().title(), "bookmark file");
+
+        files.fail_writes(false);
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        assert!(is_locked(&app));
+        let saved = marks_in(files.get("favs.babelbookmark").unwrap());
+        assert_eq!(saved.bookmarks()[1].label(), "new name");
     }
 
     #[test]
@@ -1106,5 +1348,155 @@ mod test {
             open_prompt_error(&app).unwrap(),
             "pub.babelbookmark is a canonical library, but this session uses a private key"
         );
+    }
+
+    /// Opens `needle` as a search and the first result of it, leaving the session on that
+    /// page with the match marked.
+    fn open_first_hit(app: &mut App, needle: &str) {
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(app, needle);
+        app.handle_key(press(KeyCode::Enter)); // search
+        app.handle_key(press(KeyCode::Enter)); // open the selected row
+    }
+
+    #[test]
+    fn b_after_opening_a_search_result_prefills_the_label() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        open_first_hit(&mut app, "hello");
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "search: hello");
+    }
+
+    #[test]
+    fn the_prefill_saves_as_it_stands_and_can_be_cleared() {
+        let files = std::sync::Arc::new(
+            MemFiles::default().with(MARKS, &marks_bytes(LibraryConfig::SMALL, 0)),
+        );
+        let mut app = bookmarked_app(files.clone());
+        open_first_hit(&mut app, "hi");
+        app.handle_key(press(KeyCode::Char('b')));
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (1)");
+        let on_disk = String::from_utf8(files.get(MARKS).unwrap()).unwrap();
+        assert!(on_disk.contains("\tsearch: hi\t"), "{on_disk}");
+
+        // A second page, the label cleared to empty, still bookmarks.
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert!(prompt_of(&app).unwrap().input().is_empty());
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(status_of(&app).unwrap().text, "bookmarked (2)");
+    }
+
+    #[test]
+    fn a_private_library_never_prefills_the_label() {
+        use bitbabel_core::Key;
+        use bitbabel_file::{BookmarkFile, BookmarkKey, BookmarkSettings};
+        let key = Key::from_bytes([1; 32]);
+        let settings =
+            BookmarkSettings::new(LibraryConfig::SMALL, BookmarkKey::Custom(key.fingerprint()))
+                .unwrap();
+        let bytes = BookmarkFile::new(settings).to_bytes();
+        let files = MemFiles::default().with(MARKS, &bytes);
+        let config = TuiConfig {
+            size: None,
+            key: Some(key),
+            bookmarks: Some(MARKS.into()),
+        };
+        let mut app = App::new(config, fake_random, Box::new(files))
+            .unwrap()
+            .with_clock(fixed_now);
+        open_first_hit(&mut app, "hi");
+        app.handle_key(press(KeyCode::Char('b')));
+        // The highlight is set and a needle exists — but the key is private: the file is
+        // not secret, and the label would say what was searched (§13.3a, finding 4).
+        assert_eq!(prompt_of(&app).unwrap().input(), "");
+    }
+
+    #[test]
+    fn a_search_the_page_does_not_answer_to_leaves_the_label_empty() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        open_first_hit(&mut app, "hi");
+        // Search again WITHOUT opening a result: the page on screen still answers to the
+        // old needle, so nothing is safe to prefill (§13.3b).
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "x"); // stale: Enter searches again instead of opening
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Esc));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "");
+    }
+
+    #[test]
+    fn a_plain_page_never_prefills_the_label() {
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        app.handle_key(press(KeyCode::Char('l')));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "");
+    }
+
+    #[test]
+    fn the_free_label_step_prefills_and_the_file_step_never_does() {
+        let files = std::sync::Arc::new(MemFiles::default());
+        let config = TuiConfig {
+            size: Some(LibraryConfig::SMALL),
+            key: None,
+            bookmarks: None,
+        };
+        let mut app = App::new(config, fake_random, Box::new(SharedFiles(files)))
+            .unwrap()
+            .with_clock(fixed_now);
+        open_first_hit(&mut app, "hi");
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().title(), "bookmark file");
+        assert!(
+            prompt_of(&app).unwrap().input().is_empty(),
+            "file step: never prefilled"
+        );
+        type_text(&mut app, "favs");
+        app.handle_key(press(KeyCode::Enter));
+        assert_eq!(prompt_of(&app).unwrap().title(), "bookmark");
+        assert_eq!(prompt_of(&app).unwrap().input(), "search: hi");
+    }
+
+    #[test]
+    fn the_prefill_drops_characters_a_label_cannot_hold() {
+        // The utf8 view takes a needle as it is typed, invisible ones included (§13.3b).
+        let mut app = marks_app(LibraryConfig::SMALL, 0);
+        for _ in 0..3 {
+            app.handle_key(press(KeyCode::Char('e'))); // text, hex, base64, utf8
+        }
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, "a\u{200b}b");
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Char('b')));
+        assert_eq!(prompt_of(&app).unwrap().input(), "search: ab");
+    }
+
+    #[test]
+    fn the_prefill_is_cut_at_60_terminal_cells() {
+        let mut app = marks_app(LibraryConfig::MEDIUM, 0);
+        open_first_hit(&mut app, &"a".repeat(100));
+        app.handle_key(press(KeyCode::Char('b')));
+        let input = prompt_of(&app).unwrap().input().to_string();
+        assert_eq!(input, format!("search: {}", "a".repeat(52)));
+        assert_eq!(Span::raw(&input).width(), 60);
+    }
+
+    #[test]
+    fn wide_needle_characters_are_counted_as_two_cells() {
+        let mut app = marks_app(LibraryConfig::MEDIUM, 0);
+        for _ in 0..3 {
+            app.handle_key(press(KeyCode::Char('e'))); // utf8
+        }
+        app.handle_key(press(KeyCode::Char('/')));
+        type_text(&mut app, &"日".repeat(40)); // 120 bytes
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Enter));
+        app.handle_key(press(KeyCode::Char('b')));
+        let input = prompt_of(&app).unwrap().input().to_string();
+        assert_eq!(Span::raw(&input).width(), 60);
+        assert_eq!(input, format!("search: {}", "日".repeat(26)));
     }
 }

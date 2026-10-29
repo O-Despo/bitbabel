@@ -72,6 +72,7 @@ and volume), then the page itself with the offset of each line on the left.
 | `e` | Show the page as text, hex, base64 or utf8 |
 | `x` | Save the current index to a new file (it never overwrites one). `g` reads it back |
 | `b` | Bookmark this page (see Bookmarks) |
+| `B` | The bookmark list: `Enter` opens a page, `r` renames, `d` deletes (see Bookmarks) |
 | `n` `N` | Next and previous result of the last search |
 | `s` | Start over |
 | `?` | Show every key |
@@ -183,13 +184,38 @@ The last one also counts a key in `BITBABEL_KEY` that you did not type in this c
   A name with no extension gets `.babelbookmark`; a typed extension is kept. **Nothing is written,
   and the session is not locked, until the second `Enter`.** `Esc` on the label goes back to the
   file with both texts kept, and `Esc` again cancels. If the file already exists it must be for
-  this library, and the new bookmark is added after its own. A file of another library, or one
-  that is not a bookmark file, is an error in the box and is not touched.
+  this library, and the new bookmark is added after its own. If the file already has this page,
+  the label box says so and starts with its current label: `Enter` gives that bookmark the label
+  in the box (a page has one bookmark), locks the session, and opens the list on it. A file of
+  another library, or one that is not a bookmark file, is an error in the box and is not touched.
 
 Every change is written to the file at once, so there is no save key and nothing is lost on
 quit. The file is written to a temporary file in the same folder and then renamed over the real
 one, so it is never half written. If the disk refuses, the error appears in the box, the
 bookmark is not kept, and you can press `Enter` again.
+
+The label box **can start filled**: when the page on screen is one you reached from a search
+and the library is canonical, `b` opens it as `search: <needle>` — characters a label cannot
+hold dropped, cut at 60 terminal cells, free to edit or clear. In a private library the box
+always starts empty: the file is not secret, and the label would tell anyone what you searched
+for.
+
+### Browsing the list
+
+`B` opens the list of the file's bookmarks: the time in UTC (`2026-10-01 14:20Z`), the label,
+and the index — whole on `small`, its two ends otherwise. A session with no bookmark file just
+gets the message `no bookmark file`.
+
+| Key | In the list |
+|---|---|
+| `↑` `↓` `j` `k` | Move the selection; the list scrolls |
+| `Enter` | Open that page — a visit like any other, `←` comes back |
+| `r` | Rename. The label box opens with the old label typed in; `Esc` comes back to the list |
+| `d` | Delete, at once, no asking again. The page stays reachable by its index |
+| `Esc` `q` | Close the list |
+
+Renaming and deleting rewrite the whole file, exactly like adding does. If the disk refuses,
+the list is unchanged and the reason is on the screen.
 
 ### Things to know
 

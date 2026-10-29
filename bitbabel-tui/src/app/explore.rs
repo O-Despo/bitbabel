@@ -3,6 +3,7 @@
 use bitbabel_core::PageIndex;
 use ratatui::crossterm::event::KeyEvent;
 
+use super::bookmark_list;
 use super::effect::Effect;
 use super::prompt::{self, PromptKind};
 use super::search;
@@ -22,6 +23,11 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         && session.search_is_open()
     {
         return search::handle_key(app, key);
+    }
+    if let Mode::Explore(session) = &mut app.mode
+        && session.bookmark_list_is_open()
+    {
+        return bookmark_list::handle_key(app, key);
     }
     if let Mode::Explore(session) = &mut app.mode
         && session.help_is_open()
@@ -53,9 +59,18 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Effect> {
         Action::Search => session.open_search(),
         Action::AddBookmark => {
             if matches!(session.bookmarks(), Bookmarks::Locked(_)) {
-                session.open_prompt(PromptKind::Bookmark);
+                let prefill = prompt::bookmark_prefill(session);
+                session.open_prompt_prefilled(PromptKind::Bookmark, prefill);
             } else {
                 session.open_prompt(PromptKind::BookmarkFile);
+            }
+        }
+        // The list needs a file. A free session is told, and shows nothing (§13.3b).
+        Action::OpenBookmarks => {
+            if matches!(session.bookmarks(), Bookmarks::Locked(_)) {
+                session.open_bookmark_list();
+            } else {
+                session.set_status("no bookmark file");
             }
         }
         Action::NextResult => search::step_result(session, true),

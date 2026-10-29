@@ -17,8 +17,7 @@ pub struct TuiArgs {
     #[arg(long, value_name = "SIZE")]
     size: Option<LibraryConfig>,
 
-    /// Open a bookmark file. The session uses its library: a --size or key given with it must
-    /// match, and what is left out is taken from the file
+    /// Open a bookmark file and use its library (--size and keys must match it)
     #[arg(long, value_name = "PATH")]
     bookmarks: Option<PathBuf>,
 

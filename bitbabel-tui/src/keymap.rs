@@ -17,6 +17,7 @@ pub enum Action {
     GoTo,
     Search,
     AddBookmark,
+    OpenBookmarks,
     NextResult,
     PrevResult,
     Export,
@@ -154,6 +155,12 @@ const BINDINGS: &[Binding] = &[
         Some("bookmark this page"),
     ),
     bind(
+        Pattern::Char('B'),
+        Action::OpenBookmarks,
+        None,
+        Some("the bookmark list"),
+    ),
+    bind(
         Pattern::Char('n'),
         Action::NextResult,
         None,
@@ -270,6 +277,8 @@ mod test {
         assert_eq!(plain('x'), Some(Action::Export));
         assert_eq!(plain('g'), Some(Action::GoTo));
         assert_eq!(plain('/'), Some(Action::Search));
+        assert_eq!(plain('b'), Some(Action::AddBookmark));
+        assert_eq!(plain('B'), Some(Action::OpenBookmarks));
         assert_eq!(plain('n'), Some(Action::NextResult));
         assert_eq!(plain('N'), Some(Action::PrevResult));
         assert_eq!(
@@ -354,6 +363,7 @@ mod test {
                 .map(|(_, what)| *what)
         };
         assert_eq!(find("h"), Some("previous page"));
+        assert_eq!(find("B"), Some("the bookmark list"));
         assert_eq!(find("Ctrl+d"), Some("scroll down half a screen"));
         assert_eq!(find("Home"), Some("top of the page"));
         assert_eq!(find("←"), Some("back in history"));
