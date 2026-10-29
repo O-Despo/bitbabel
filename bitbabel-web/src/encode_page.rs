@@ -10,7 +10,7 @@ use yew::prelude::*;
 
 use crate::browser;
 use crate::components::{Action, Choice};
-use crate::encode::{EncodeAction, EncodeForm};
+use crate::encode::{EncodeAction, EncodeForm, MAX_WEB_FILE};
 use crate::library_fields::{KeyFields, SizeFields};
 
 /// The formats, in the order they are shown.
@@ -47,6 +47,13 @@ pub fn EncodePage(props: &EncodePageProps) -> Html {
                 return;
             };
             let name = file.name();
+            if file.size() > MAX_WEB_FILE as u64 {
+                form.dispatch(EncodeAction::TooBig {
+                    name,
+                    len: file.size(),
+                });
+                return;
+            }
             let form = form.clone();
             let task = read_as_bytes(&file, move |bytes| {
                 form.dispatch(EncodeAction::Input {

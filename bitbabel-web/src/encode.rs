@@ -20,7 +20,7 @@ pub const MAX_WEB_FILE: usize = 32 << 20;
 const PREVIEW_FIRST: usize = 3;
 
 /// Why a file is too big for the web, as a message for the screen.
-pub fn too_big(name: &str, len: usize) -> String {
+pub fn too_big(name: &str, len: u64) -> String {
     format!(
         "{name} is {} MB; the web takes files up to {} MB. Use the CLI for bigger files.",
         len.div_ceil(1 << 20),
@@ -71,6 +71,12 @@ pub enum EncodeAction {
     Input {
         name: String,
         bytes: Result<Vec<u8>, String>,
+    },
+    /// A file over `MAX_WEB_FILE` was chosen. It is refused without being read, so a huge file
+    /// never fills the tab.
+    TooBig {
+        name: String,
+        len: u64,
     },
     /// A change to the size or the key, as on the Library screen.
     Library(FormAction),
@@ -134,6 +140,10 @@ impl EncodeForm {
         }
         match action {
             EncodeAction::Input { name, bytes } => self.load(name, bytes),
+            EncodeAction::TooBig { name, len } => {
+                self.input = None;
+                self.result = Some(Err(too_big(&name, len)));
+            }
             EncodeAction::Library(action) => self.library.apply(action),
             EncodeAction::Format(format) => self.format = format,
             EncodeAction::Check(check) => self.check = check,
@@ -148,7 +158,7 @@ impl EncodeForm {
         self.input = None;
         match bytes {
             Ok(bytes) if bytes.len() > MAX_WEB_FILE => {
-                self.result = Some(Err(too_big(&name, bytes.len())));
+                self.result = Some(Err(too_big(&name, bytes.len() as u64)));
             }
             Ok(bytes) => {
                 self.output_name = format!("{name}.babel");
@@ -383,6 +393,23 @@ mod test {
         assert_eq!(
             form.result(),
             Some(&Err("cannot read x: denied".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_file_too_big_to_read_is_refused_and_drops_the_last_one() {
+        let mut form = form_with(LibraryConfig::SMALL, b"hello");
+        form.apply(EncodeAction::TooBig {
+            name: "disk.img".to_string(),
+            len: 2 << 30,
+        });
+        assert_eq!(form.input(), None);
+        assert_eq!(
+            form.result(),
+            Some(&Err(
+                "disk.img is 2048 MB; the web takes files up to 32 MB. Use the CLI for bigger files."
+                    .to_string()
+            ))
         );
     }
 
