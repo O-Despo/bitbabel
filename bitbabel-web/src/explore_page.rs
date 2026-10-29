@@ -9,6 +9,7 @@ use yew::prelude::*;
 
 use crate::browser;
 use crate::components::{Action, Choice, Modal};
+use crate::download::data_link;
 use crate::explore::{ExploreAction, Slot};
 
 /// What the screen needs.
@@ -17,20 +18,6 @@ pub struct ExplorePageProps {
     pub explore: UseReducerHandle<Slot>,
     /// The library to open if nothing is open yet.
     pub library: LibraryChoice,
-}
-
-/// `%`-escapes the characters of a base64 index that a `data:` link would misread.
-fn data_link(text: &str) -> String {
-    let escaped: String = text
-        .chars()
-        .map(|c| match c {
-            '+' => "%2B".to_string(),
-            '/' => "%2F".to_string(),
-            '=' => "%3D".to_string(),
-            c => c.to_string(),
-        })
-        .collect();
-    format!("data:text/plain;charset=utf-8,{escaped}")
 }
 
 /// A run of page text, with the marked part inverted.

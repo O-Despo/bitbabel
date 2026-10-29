@@ -2,6 +2,7 @@
 
 mod browser;
 mod components;
+mod download;
 mod explore;
 mod explore_page;
 mod library_form;
