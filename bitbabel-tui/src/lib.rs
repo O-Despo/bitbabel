@@ -52,12 +52,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<(), TuiEr
         terminal.draw(|frame| ui::draw(frame, app))?;
         match event::read()? {
             Event::Key(key) => {
-                for effect in app.handle_key(key) {
-                    match effect {
-                        Effect::Quit => return Ok(()),
-                        // Arrives with the copy keys.
-                        Effect::Clipboard(_) => {}
-                    }
+                if app.handle_key(key).contains(&Effect::Quit) {
+                    return Ok(());
                 }
             }
             Event::Resize(_, height) => app.set_terminal_height(height),
