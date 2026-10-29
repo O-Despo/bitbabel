@@ -144,6 +144,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitbabel-explorer"
+version = "0.1.0"
+dependencies = [
+ "bitbabel-core",
+]
+
+[[package]]
 name = "bitbabel-file"
 version = "0.1.0"
 dependencies = [
@@ -156,6 +163,7 @@ name = "bitbabel-tui"
 version = "0.1.0"
 dependencies = [
  "bitbabel-core",
+ "bitbabel-explorer",
  "bitbabel-file",
  "chrono",
  "getrandom 0.4.3",

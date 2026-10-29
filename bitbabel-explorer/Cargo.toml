@@ -1,0 +1,12 @@
+[package]
+name = "bitbabel-explorer"
+version = "0.1.0"
+edition = "2024"
+description = "The terminal-free parts of a BitBabel explorer: views, search needles and page history"
+license.workspace = true
+
+[dependencies]
+bitbabel-core = { path = "../bitbabel-core" }
+
+[lints]
+workspace = true
