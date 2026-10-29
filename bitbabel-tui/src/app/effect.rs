@@ -6,8 +6,4 @@
 pub enum Effect {
     /// Leave the explorer.
     Quit,
-    /// Send this text to the terminal's clipboard (OSC 52).
-    // Nothing makes one until the copy keys arrive.
-    #[allow(dead_code)]
-    Clipboard(String),
 }
