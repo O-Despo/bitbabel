@@ -5,6 +5,7 @@ mod bookmarks;
 mod bookmarks_page;
 mod browser;
 mod components;
+mod decode;
 mod download;
 mod encode;
 mod encode_page;
