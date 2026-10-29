@@ -9,6 +9,7 @@ mod download;
 mod encode;
 mod explore;
 mod explore_page;
+mod library_fields;
 mod library_form;
 mod library_page;
 mod route;
