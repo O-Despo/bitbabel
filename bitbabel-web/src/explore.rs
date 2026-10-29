@@ -1,11 +1,14 @@
 //! The Explore screen's state: one open library, the page shown and how it is viewed. All of
 //! its rules live here, so they run in plain unit tests without a browser.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use bitbabel_core::PageIndex;
 use bitbabel_explorer::{DisplayLine, LibraryChoice, View, render};
 use yew::Reducible;
+
+use crate::search::Results;
 
 /// How many characters of an index or hexagon are kept at each end when it is shortened.
 const ENDS: usize = 12;
@@ -25,6 +28,11 @@ pub struct Explore {
     view: View,
     /// The bytes of the page at `index`.
     bytes: Vec<u8>,
+    /// The bytes marked on the page. Set when the page came from a search result, and cleared
+    /// by any other change of page.
+    highlight: Option<Range<usize>>,
+    /// The last search. It stays while moving between pages.
+    results: Option<Results>,
     status: Option<Status>,
 }
 
@@ -43,6 +51,8 @@ impl Explore {
             index,
             view: View::Text,
             bytes,
+            highlight: None,
+            results: None,
             status: None,
         })
     }
@@ -76,7 +86,18 @@ impl Explore {
 
     /// The page laid out in the current view.
     pub fn lines(&self) -> Vec<DisplayLine> {
-        render(self.view, &self.bytes, None)
+        render(self.view, &self.bytes, self.highlight.as_ref())
+    }
+
+    /// The line of the page that holds the start of the marked bytes, if any are marked.
+    pub fn highlight_line(&self) -> Option<usize> {
+        let start = self.highlight.as_ref()?.start;
+        self.lines().iter().rposition(|line| line.offset <= start)
+    }
+
+    /// The last search, if there was one.
+    pub fn results(&self) -> Option<&Results> {
+        self.results.as_ref()
     }
 
     /// The whole index, as base64.
@@ -151,6 +172,53 @@ impl Explore {
         self.show(index);
     }
 
+    /// Searches the open library for `text`, read in the current view. A problem is shown as
+    /// the status and the earlier results are kept.
+    pub fn search(&mut self, text: &str, seed: Result<Vec<u8>, String>) {
+        match Results::run(&self.library, self.view, text, seed) {
+            Ok(results) => {
+                self.results = Some(results);
+                self.status = None;
+            }
+            Err(error) => self.say(error, true),
+        }
+    }
+
+    /// Goes to result `at` and marks the needle in the page. Out of range, it does nothing.
+    pub fn open_result(&mut self, at: usize) {
+        let Some(hit) = self
+            .results
+            .as_ref()
+            .and_then(|r| r.hits().get(at))
+            .cloned()
+        else {
+            return;
+        };
+        self.show(hit.index().clone());
+        // If the page could not be computed, `show` said so and the page is unchanged.
+        if self.index == *hit.index() {
+            self.highlight = Some(hit.range());
+            if let Some(results) = &mut self.results {
+                results.mark_opened(at);
+            }
+        }
+    }
+
+    /// Goes to the result after or before the one opened last.
+    pub fn step_result(&mut self, forward: bool) {
+        match self.results.as_ref().and_then(|r| r.neighbour(forward)) {
+            Some(at) => self.open_result(at),
+            None => self.say("no search results, search first", false),
+        }
+    }
+
+    /// Shows or hides the list of results.
+    pub fn toggle_list(&mut self) {
+        if let Some(results) = &mut self.results {
+            results.toggle_list();
+        }
+    }
+
     /// Shows the same page in another view.
     pub fn set_view(&mut self, view: View) {
         self.view = view;
@@ -170,6 +238,7 @@ impl Explore {
             Ok(bytes) => {
                 self.index = index;
                 self.bytes = bytes;
+                self.highlight = None;
                 self.status = None;
             }
             Err(error) => self.say(error, true),
@@ -185,7 +254,7 @@ fn page_bytes(library: &LibraryChoice, index: &PageIndex) -> Result<Vec<u8>, Str
 }
 
 /// `text` with the middle replaced by `…` when it is longer than both ends and the dots.
-fn shorten(text: &str) -> String {
+pub fn shorten(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= ENDS * 2 + 1 {
         return text.to_string();
@@ -217,6 +286,13 @@ pub enum ExploreAction {
     Random(Result<Vec<u8>, String>),
     Visit(PageIndex),
     View(View),
+    Search {
+        text: String,
+        seed: Result<Vec<u8>, String>,
+    },
+    OpenResult(usize),
+    StepResult(bool),
+    ToggleList,
     Say {
         text: String,
         error: bool,
@@ -242,6 +318,10 @@ impl Reducible for Slot {
                 ExploreAction::Random(seed) => explore.random(seed),
                 ExploreAction::Visit(index) => explore.visit(index),
                 ExploreAction::View(view) => explore.set_view(view),
+                ExploreAction::Search { text, seed } => explore.search(&text, seed),
+                ExploreAction::OpenResult(at) => explore.open_result(at),
+                ExploreAction::StepResult(forward) => explore.step_result(forward),
+                ExploreAction::ToggleList => explore.toggle_list(),
                 ExploreAction::Say { text, error } => explore.say(text, error),
             }
         }
@@ -378,6 +458,106 @@ mod test {
         explore.set_view(View::Hex);
         assert_eq!(explore.bytes(), bytes);
         assert_ne!(explore.lines(), text_lines);
+    }
+
+    fn searched() -> Explore {
+        let mut explore = at_zero();
+        explore.search("hi", Ok(vec![5; 32]));
+        explore
+    }
+
+    fn marked(explore: &Explore) -> String {
+        explore
+            .lines()
+            .iter()
+            .flat_map(|line| &line.segments)
+            .filter(|segment| segment.highlighted)
+            .map(|segment| segment.text.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn a_search_keeps_the_page_and_shows_the_results() {
+        let explore = searched();
+        assert_eq!(explore.index(), &number(0));
+        assert!(explore.status().is_none());
+        assert!(explore.results().unwrap().list_open());
+        assert!(!explore.results().unwrap().hits().is_empty());
+    }
+
+    #[test]
+    fn opening_a_result_goes_to_its_page_and_marks_the_needle() {
+        let mut explore = searched();
+        let hit = explore.results().unwrap().hits()[1].clone();
+        explore.open_result(1);
+        assert_eq!(explore.index(), hit.index());
+        assert_eq!(explore.bytes()[hit.range()].to_vec(), b"hi");
+        assert_eq!(marked(&explore), "hi");
+        let results = explore.results().unwrap();
+        assert_eq!(results.opened(), Some(1));
+        assert!(results.list_open());
+    }
+
+    #[test]
+    fn the_mark_stays_through_a_view_change_and_goes_with_any_other_page_change() {
+        let mut explore = searched();
+        explore.open_result(0);
+        explore.set_view(View::Hex);
+        assert_eq!(marked(&explore), "6869");
+        explore.step(true);
+        assert_eq!(marked(&explore), "");
+        assert!(explore.results().is_some());
+    }
+
+    #[test]
+    fn stepping_results_wraps_and_says_so_when_there_are_none() {
+        let mut explore = at_zero();
+        explore.step_result(true);
+        assert_eq!(
+            explore.status().map(|s| (s.error, s.text.as_str())),
+            Some((false, "no search results, search first"))
+        );
+
+        let mut explore = searched();
+        let total = explore.results().unwrap().hits().len();
+        explore.step_result(true);
+        assert_eq!(explore.results().unwrap().opened(), Some(0));
+        explore.step_result(false);
+        assert_eq!(explore.results().unwrap().opened(), Some(total - 1));
+    }
+
+    #[test]
+    fn a_failed_search_says_why_and_keeps_the_earlier_results() {
+        let mut explore = searched();
+        let before = explore.results().cloned();
+        explore.search("", Ok(vec![5; 32]));
+        assert_eq!(
+            explore.status().map(|s| (s.error, s.text.as_str())),
+            Some((true, "type something to search for"))
+        );
+        assert_eq!(explore.results().cloned(), before);
+    }
+
+    #[test]
+    fn the_list_can_be_hidden_and_shown() {
+        let mut explore = searched();
+        explore.toggle_list();
+        assert!(!explore.results().unwrap().list_open());
+        explore.toggle_list();
+        assert!(explore.results().unwrap().list_open());
+        // With no search yet there is nothing to toggle.
+        let mut fresh = at_zero();
+        fresh.toggle_list();
+        assert!(fresh.results().is_none());
+    }
+
+    #[test]
+    fn the_marked_line_is_the_one_that_holds_the_start_of_the_needle() {
+        let mut explore = searched();
+        assert_eq!(explore.highlight_line(), None);
+        explore.open_result(0);
+        // A small page is a single line.
+        assert_eq!(explore.highlight_line(), Some(0));
     }
 
     #[test]

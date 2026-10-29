@@ -7,6 +7,7 @@ mod explore_page;
 mod library_form;
 mod library_page;
 mod route;
+mod search;
 mod theme;
 
 use bitbabel_core::LibraryConfig;

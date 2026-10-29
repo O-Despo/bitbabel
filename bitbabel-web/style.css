@@ -379,3 +379,73 @@ section h2 {
 .modal input[type="file"] {
   display: none;
 }
+
+/* Search results. */
+.results-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.stale {
+  max-width: 880px;
+  margin: 10px auto;
+  padding: 6px 10px;
+  border: 1px dashed var(--ink);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--faint) 0,
+    var(--faint) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  font-size: 12px;
+}
+
+.hits {
+  max-width: 880px;
+  margin: 10px auto 0;
+  text-align: left;
+  font-size: 12px;
+}
+
+/* A row always fits the width: the text around the match is cut with an ellipsis. */
+.result {
+  display: grid;
+  grid-template-columns: 28px 26ch 12ch 8ch minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--faint);
+  white-space: pre;
+}
+
+.result .context {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* On a narrow screen the long index makes way for the rest. */
+@media (max-width: 640px) {
+  .result {
+    grid-template-columns: 28px 12ch 8ch minmax(0, 1fr);
+  }
+
+  .result span:nth-child(2) {
+    display: none;
+  }
+}
+
+.result:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* The needle is inverted; on a hovered row it is inverted back so it still stands out. */
+.result:hover .hit {
+  background: var(--paper);
+  color: var(--ink);
+}
