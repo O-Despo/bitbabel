@@ -1,9 +1,10 @@
 //! The Explore screen: read a page, move between pages, pick a view, go to an index, copy or
 //! save the index. The box at the top is for search, which comes in the next step.
 
+use bitbabel_explorer::Segment;
 use bitbabel_explorer::{LibraryChoice, View};
 use gloo_file::callbacks::{FileReader, read_as_text};
-use web_sys::{HtmlInputElement, HtmlTextAreaElement};
+use web_sys::{Element, HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 
 use crate::browser;
@@ -32,6 +33,17 @@ fn data_link(text: &str) -> String {
     format!("data:text/plain;charset=utf-8,{escaped}")
 }
 
+/// A run of page text, with the marked part inverted.
+fn segments_html(segments: impl IntoIterator<Item = Segment>) -> Html {
+    segments
+        .into_iter()
+        .map(|segment| {
+            let class = segment.highlighted.then_some("hit");
+            html! { <span {class}>{ segment.text }</span> }
+        })
+        .collect()
+}
+
 /// The "go to an index" popup while it is open: what is typed, and why it was refused.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct GoTo {
@@ -55,6 +67,23 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
             if *empty {
                 let seed = browser::random_bytes(library.size().page_len());
                 explore.dispatch(ExploreAction::Open { library, seed });
+            }
+        });
+    }
+
+    // Whenever the page, the view or the marked line changes, scroll the page to the mark, or
+    // to the top when nothing is marked.
+    let scroll_ref = use_node_ref();
+    {
+        let scroll_ref = scroll_ref.clone();
+        let target = match &*explore {
+            Slot::Open(open) => Some((open.index_text(), open.view(), open.highlight_line())),
+            _ => None,
+        };
+        use_effect_with(target, move |target| {
+            if let (Some((_, _, line)), Some(element)) = (target, scroll_ref.cast::<Element>()) {
+                let top = line.map_or(0, |line| line.saturating_sub(3) * 20);
+                element.set_scroll_top(i32::try_from(top).unwrap_or(0));
             }
         });
     }
@@ -121,11 +150,12 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
     };
     let on_search_key = {
         let explore = explore.clone();
+        let search = search.clone();
         Callback::from(move |event: KeyboardEvent| {
             if event.key() == "Enter" {
-                explore.dispatch(ExploreAction::Say {
-                    text: "search is not built yet".to_string(),
-                    error: false,
+                explore.dispatch(ExploreAction::Search {
+                    text: (*search).clone(),
+                    seed: browser::random_bytes(32),
                 });
             }
         })
@@ -139,12 +169,61 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
         }
     });
 
-    let lines = open.lines().into_iter().map(|line| {
-        let segments = line.segments.into_iter().map(|segment| {
-            let class = segment.highlighted.then_some("hit");
-            html! { <span {class}>{ segment.text }</span> }
+    let lines = open
+        .lines()
+        .into_iter()
+        .map(|line| html! { <div class="line">{ segments_html(line.segments) }</div> });
+
+    let results = open.results().map(|results| {
+        let stale = results.is_stale(search.as_str(), open.view());
+        let total = results.hits().len();
+        let label = match results.opened() {
+            Some(at) => format!("“{}” {}/{}", results.needle(), at + 1, total),
+            None => format!("“{}” {} results", results.needle(), total),
+        };
+        let step_result = |forward: bool| {
+            let explore = explore.clone();
+            Callback::from(move |_: MouseEvent| {
+                explore.dispatch(ExploreAction::StepResult(forward));
+            })
+        };
+        let toggle = {
+            let explore = explore.clone();
+            Callback::from(move |_: MouseEvent| explore.dispatch(ExploreAction::ToggleList))
+        };
+        let rows = results.hits().iter().enumerate().map(|(at, hit)| {
+            let explore = explore.clone();
+            let onclick = Callback::from(move |_: MouseEvent| {
+                explore.dispatch(ExploreAction::OpenResult(at));
+            });
+            html! {
+                <button class="result" {onclick}>
+                    <span>{ at + 1 }</span>
+                    <span>{ hit.index_short() }</span>
+                    <span>{ hit.address() }</span>
+                    <span>{ format!("@{}", hit.range().start) }</span>
+                    <span class="context">{ segments_html(hit.context().to_vec()) }</span>
+                </button>
+            }
         });
-        html! { <div class="line">{ for segments }</div> }
+        html! {
+            <>
+                <div class="results-row">
+                    <Action label="←" onclick={step_result(false)} />
+                    <span>{ label }{ stale.then_some(" · stale") }</span>
+                    <Action label="→" onclick={step_result(true)} />
+                    <Action label={if results.list_open() { "hide list" } else { "list" }} onclick={toggle} />
+                </div>
+                if results.list_open() {
+                    if stale {
+                        <p class="stale">
+                            { "STALE — the needle or the view changed since this search. Search again to refresh." }
+                        </p>
+                    }
+                    <div class="hits">{ for rows }</div>
+                }
+            </>
+        }
     });
 
     let open_goto = {
@@ -261,11 +340,12 @@ pub fn ExplorePage(props: &ExplorePageProps) -> Html {
                 <span class="views">{ "encode: " }{ for views }</span>
             </div>
             { status }
+            { results }
             <p class="where">
                 { format!("index {}", open.index_short()) }<br />
                 { open.location_text() }
             </p>
-            <div class="reader">
+            <div class="reader" ref={scroll_ref}>
                 <div class="text">{ for lines }</div>
             </div>
             { modal }
