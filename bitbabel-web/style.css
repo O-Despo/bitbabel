@@ -164,3 +164,94 @@ button {
   font-size: 12px;
   background: var(--paper);
 }
+
+/* Screens with a narrow column, like Library. */
+.narrow {
+  max-width: 640px;
+}
+
+section h2 {
+  margin: 24px 0 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.cards {
+  display: grid;
+  gap: 8px;
+}
+
+.cards.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.cards.two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 480px) {
+  .cards.three,
+  .cards.two {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* An option in a group: the selected one is inverted, and so is the one under the pointer. */
+.choice {
+  display: block;
+  text-align: left;
+}
+
+.choice.card {
+  border: 1px solid var(--ink);
+  padding: 10px 12px;
+}
+
+.choice:hover,
+.choice.sel {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px dashed var(--ink);
+}
+
+.panel input[type="file"] {
+  display: none;
+}
+
+.panel label {
+  cursor: pointer;
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+}
+
+.err {
+  margin: 0;
+  color: var(--error);
+}
+
+.center {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}

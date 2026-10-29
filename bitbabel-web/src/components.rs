@@ -35,10 +35,34 @@ pub fn ActionLink(props: &ActionLinkProps) -> Html {
     }
 }
 
+/// What a choice needs.
+#[derive(Properties, PartialEq)]
+pub struct ChoiceProps {
+    pub selected: bool,
+    pub onclick: Callback<MouseEvent>,
+    #[prop_or_default]
+    pub class: Classes,
+    #[prop_or_default]
+    pub children: Html,
+}
+
+/// One option in a group. The selected one is drawn inverted.
+#[component]
+pub fn Choice(props: &ChoiceProps) -> Html {
+    let class = classes!(
+        "choice",
+        props.class.clone(),
+        props.selected.then_some("sel")
+    );
+    html! { <button {class} onclick={props.onclick.clone()}>{ props.children.clone() }</button> }
+}
+
 /// What the top bar needs.
 #[derive(Properties, PartialEq)]
 pub struct TopBarProps {
     pub route: Route,
+    /// The open library, as `medium · canonical`.
+    pub library: AttrValue,
     pub theme: Theme,
     pub on_theme: Callback<MouseEvent>,
 }
@@ -58,8 +82,7 @@ pub fn TopBar(props: &TopBarProps) -> Html {
         <header class="topbar">
             <a class="logo" href={Route::Home.href()}>{ "BITBABEL" }</a>
             <nav class="nav">{ for items }</nav>
-            // Until the Library screen exists this is always the default library.
-            <a class="act" href={Route::Library.href()}>{ "[ lib: medium · canonical ]" }</a>
+            <a class="act" href={Route::Library.href()}>{ format!("[ lib: {} ]", props.library) }</a>
             <Action label={props.theme.switch_label()} onclick={props.on_theme.clone()} />
         </header>
     }
