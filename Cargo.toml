@@ -1,5 +1,11 @@
 [workspace]
-members = ["bitbabel-core", "bitbabel-file", "bitbabel-tui", "bitbabel-cli"]
+members = [
+    "bitbabel-core",
+    "bitbabel-file",
+    "bitbabel-explorer",
+    "bitbabel-tui",
+    "bitbabel-cli",
+]
 resolver = "3"
 
 [workspace.package]

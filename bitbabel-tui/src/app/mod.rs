@@ -5,7 +5,6 @@ mod bookmark_list;
 mod effect;
 mod explore;
 mod library;
-mod needle;
 mod prompt;
 mod search;
 mod session;

@@ -8,10 +8,8 @@ mod clock;
 mod config;
 mod error;
 mod files;
-mod history;
 mod keymap;
 mod random;
-mod render;
 mod ui;
 
 use ratatui::DefaultTerminal;

@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 
 use super::explore::shorten;
 use crate::app::SearchForm;
-use crate::render::View;
+use bitbabel_explorer::View;
 
 /// Wide enough for a good part of a needle, and it still fits the smallest terminal (80
 /// columns) with a margin.

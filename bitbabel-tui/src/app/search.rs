@@ -8,11 +8,10 @@ use bitbabel_core::{BabelLibrary, PageIndex, SearchOptions};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::effect::Effect;
-use super::needle;
 use super::session::Session;
 use super::{App, Mode, typed_char};
 use crate::random::RandomFn;
-use crate::render::View;
+use bitbabel_explorer::{View, parse_needle};
 
 /// How many results a search shows.
 pub const RESULTS: usize = 10;
@@ -90,7 +89,7 @@ impl SearchForm {
 
     /// How many bytes the needle is in `view`, or `None` if it is empty or not valid there.
     pub fn byte_count(&self, view: View) -> Option<usize> {
-        needle::parse(view, &self.input)
+        parse_needle(view, &self.input)
             .ok()
             .map(|bytes| bytes.len())
     }
@@ -244,7 +243,7 @@ pub(super) fn run_search(session: &mut Session, random: RandomFn) {
     let Some(form) = session.search_form_mut() else {
         return;
     };
-    let needle = match needle::parse(view, &form.input) {
+    let needle = match parse_needle(view, &form.input) {
         Ok(needle) => needle,
         Err(message) => return form.set_error(message),
     };

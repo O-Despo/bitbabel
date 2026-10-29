@@ -11,8 +11,7 @@ use super::search::SearchForm;
 use super::viewport::Viewport;
 use crate::bookmarks::{Bookmarks, SaveError};
 use crate::files::Files;
-use crate::history::History;
-use crate::render::{DisplayLine, View, render};
+use bitbabel_explorer::{DisplayLine, History, View, render};
 
 /// One session in one library.
 #[derive(Debug)]

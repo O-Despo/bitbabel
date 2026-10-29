@@ -9,6 +9,7 @@ readme = "README.md"
 [dependencies]
 bitbabel-core = { path = "../bitbabel-core" }
 bitbabel-file = { path = "../bitbabel-file" }
+bitbabel-explorer = { path = "../bitbabel-explorer" }
 chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 ratatui = "0.30"
 getrandom = "0.4"

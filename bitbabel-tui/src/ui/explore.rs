@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, Scroll
 
 use crate::app::Session;
 use crate::keymap;
-use crate::render::DisplayLine;
+use bitbabel_explorer::DisplayLine;
 
 /// How many characters of an index or hexagon are kept at each end when it is shortened.
 const ENDS: usize = 12;
