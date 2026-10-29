@@ -24,6 +24,13 @@ pub fn current_route() -> Route {
     Route::from_hash(&hash)
 }
 
+/// Opens `route`, as if its link had been clicked.
+pub fn go(route: Route) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.location().set_hash(&route.href());
+    }
+}
+
 /// The saved theme, or light if nothing usable is saved.
 pub fn load_theme() -> Theme {
     storage()

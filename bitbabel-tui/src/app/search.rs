@@ -264,10 +264,10 @@ mod test {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
-    use crate::app::library::LibraryChoice;
     use crate::app::test_util::*;
     use crate::config::TuiConfig;
     use crate::files::MemFiles;
+    use bitbabel_explorer::LibraryChoice;
 
     #[test]
     fn a_result_that_cannot_be_opened_is_an_error_on_the_status_line() {

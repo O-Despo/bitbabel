@@ -2,11 +2,12 @@
 name = "bitbabel-explorer"
 version = "0.1.0"
 edition = "2024"
-description = "The terminal-free parts of a BitBabel explorer: views, search needles and page history"
+description = "The terminal-free parts of a BitBabel explorer: views, search needles, page history and the library choice"
 license.workspace = true
 
 [dependencies]
 bitbabel-core = { path = "../bitbabel-core" }
+bitbabel-file = { path = "../bitbabel-file" }
 
 [lints]
 workspace = true

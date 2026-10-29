@@ -6,8 +6,15 @@ use bitbabel_core::{
 };
 use bitbabel_file::{BookmarkError, BookmarkKey, BookmarkSettings};
 
+/// The sizes a front end offers, in order.
+pub const SIZES: [LibraryConfig; 3] = [
+    LibraryConfig::SMALL,
+    LibraryConfig::MEDIUM,
+    LibraryConfig::LARGE,
+];
+
 /// A size and a key: the pair that names one library.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryChoice {
     size: LibraryConfig,
     /// `None` is the canonical library.
@@ -26,7 +33,6 @@ impl LibraryChoice {
     }
 
     /// The private key, or `None` for the canonical library.
-    #[cfg(test)]
     pub fn key(&self) -> Option<&Key> {
         self.key.as_ref()
     }
