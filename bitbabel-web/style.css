@@ -720,3 +720,24 @@ section h2 {
   line-height: 1.7;
   white-space: pre;
 }
+
+/* Name and value rows: the header on Decode's left, the result on its right. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid var(--ink);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 10px;
+  word-break: break-all;
+}
+
+.row + .row {
+  border-top: 1px solid var(--ghost);
+}
