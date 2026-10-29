@@ -184,8 +184,10 @@ The last one also counts a key in `BITBABEL_KEY` that you did not type in this c
   A name with no extension gets `.babelbookmark`; a typed extension is kept. **Nothing is written,
   and the session is not locked, until the second `Enter`.** `Esc` on the label goes back to the
   file with both texts kept, and `Esc` again cancels. If the file already exists it must be for
-  this library, and the new bookmark is added after its own. A file of another library, or one
-  that is not a bookmark file, is an error in the box and is not touched.
+  this library, and the new bookmark is added after its own. If the file already has this page,
+  the label box says so and starts with its current label: `Enter` gives that bookmark the label
+  in the box (a page has one bookmark), locks the session, and opens the list on it. A file of
+  another library, or one that is not a bookmark file, is an error in the box and is not touched.
 
 Every change is written to the file at once, so there is no save key and nothing is lost on
 quit. The file is written to a temporary file in the same folder and then renamed over the real

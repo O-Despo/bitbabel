@@ -38,6 +38,11 @@ impl BookmarkList {
         self.fit_window(rows, total);
     }
 
+    /// Selects row `at`. The next [`fit`](Self::fit) keeps it inside the list and in view.
+    pub(super) fn select(&mut self, at: usize) {
+        self.selected = at;
+    }
+
     /// Moves the selection one row down or up, stopping at both ends, and keeps it in view.
     pub(super) fn move_selected(&mut self, down: bool, rows: usize, total: usize) {
         if total == 0 {

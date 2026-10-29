@@ -207,6 +207,26 @@ impl LockedBookmarks {
         Ok(count)
     }
 
+    /// Opens `file`, already on disk at `path`, for this session by renaming its bookmark at
+    /// `position` to `label`. This is the first bookmark of a session landing on a page the
+    /// file already holds: the page keeps its one bookmark and gets the new label. Nothing is
+    /// kept if the write fails: the caller still has no bookmark file.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError`], as for [`rename`](Self::rename).
+    pub fn start_renaming(
+        files: &dyn Files,
+        path: PathBuf,
+        file: BookmarkFile,
+        position: usize,
+        label: &str,
+    ) -> Result<LockedBookmarks, SaveError> {
+        let mut locked = LockedBookmarks { path, file };
+        locked.rename(files, position, label)?;
+        Ok(locked)
+    }
+
     /// Renames the bookmark at `position` to `label` and writes the whole file. Its time and
     /// index stay. Like [`add`](Self::add): the file is written before the change is kept, so
     /// a failed write leaves the list as it was (§13.3b).
