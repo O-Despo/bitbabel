@@ -7,6 +7,7 @@ mod browser;
 mod components;
 mod download;
 mod encode;
+mod encode_page;
 mod explore;
 mod explore_page;
 mod library_fields;
@@ -24,6 +25,7 @@ use bookmarks::Bookmarks;
 use bookmarks_page::BookmarksPage;
 use browser::HashListener;
 use components::{Home, Placeholder, TopBar};
+use encode_page::EncodePage;
 use explore::{ExploreAction, Slot};
 use explore_page::ExplorePage;
 use library_page::LibraryPage;
@@ -103,6 +105,7 @@ fn App() -> Html {
                 Route::Bookmarks => html! {
                     <BookmarksPage marks={marks.clone()} library={(*library).clone()} {on_visit} />
                 },
+                Route::Encode => html! { <EncodePage library={(*library).clone()} /> },
                 _ => html! { <Placeholder route={current} /> },
             };
             html! {
