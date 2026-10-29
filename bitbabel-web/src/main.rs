@@ -6,6 +6,7 @@ mod bookmarks_page;
 mod browser;
 mod components;
 mod download;
+mod encode;
 mod explore;
 mod explore_page;
 mod library_form;

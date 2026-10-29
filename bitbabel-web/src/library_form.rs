@@ -93,6 +93,15 @@ impl LibraryForm {
         }
     }
 
+    /// Makes one change to the form.
+    pub fn apply(&mut self, action: FormAction) {
+        match action {
+            FormAction::Size(size) => self.size = size,
+            FormAction::Source(source) => self.source = source,
+            FormAction::KeyRead { name, bytes } => self.key_file = read_key(&name, bytes),
+        }
+    }
+
     /// The library this form describes.
     ///
     /// # Errors
@@ -130,11 +139,7 @@ impl Reducible for LibraryForm {
 
     fn reduce(self: Rc<Self>, action: FormAction) -> Rc<Self> {
         let mut next = (*self).clone();
-        match action {
-            FormAction::Size(size) => next.size = size,
-            FormAction::Source(source) => next.source = source,
-            FormAction::KeyRead { name, bytes } => next.key_file = read_key(&name, bytes),
-        }
+        next.apply(action);
         Rc::new(next)
     }
 }
