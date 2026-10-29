@@ -188,6 +188,7 @@ dependencies = [
  "bitbabel-explorer",
  "gloo-file",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "yew",
 ]

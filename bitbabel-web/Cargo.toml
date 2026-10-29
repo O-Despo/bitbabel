@@ -11,7 +11,8 @@ bitbabel-core = { version = "0.1.0", path = "../bitbabel-core" }
 bitbabel-explorer = { version = "0.1.0", path = "../bitbabel-explorer" }
 gloo-file = "0.3"
 wasm-bindgen = "0.2.129"
-web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "Storage", "Location", "Event", "EventTarget", "File", "FileList", "HtmlInputElement"] }
+wasm-bindgen-futures = "0.4.79"
+web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "Storage", "Location", "Event", "EventTarget", "File", "FileList", "HtmlInputElement", "Crypto", "Navigator", "Clipboard"] }
 yew = { version = "0.23.0", features = ["csr"] }
 
 [lints]

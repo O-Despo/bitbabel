@@ -57,6 +57,37 @@ pub fn Choice(props: &ChoiceProps) -> Html {
     html! { <button {class} onclick={props.onclick.clone()}>{ props.children.clone() }</button> }
 }
 
+/// What a popup needs.
+#[derive(Properties, PartialEq)]
+pub struct ModalProps {
+    pub title: AttrValue,
+    pub on_close: Callback<()>,
+    #[prop_or_default]
+    pub children: Html,
+}
+
+/// A box over the page. Clicking outside it or the cross closes it.
+#[component]
+pub fn Modal(props: &ModalProps) -> Html {
+    let close = {
+        let on_close = props.on_close.clone();
+        Callback::from(move |_: MouseEvent| on_close.emit(()))
+    };
+    // Clicks inside the box must not reach the backdrop behind it.
+    let keep = Callback::from(|event: MouseEvent| event.stop_propagation());
+    html! {
+        <div class="backdrop" onclick={close.clone()}>
+            <div class="modal" onclick={keep}>
+                <div class="modal-head">
+                    <span>{ props.title.clone() }</span>
+                    <button class="act" onclick={close}>{ "✕" }</button>
+                </div>
+                <div class="modal-body">{ props.children.clone() }</div>
+            </div>
+        </div>
+    }
+}
+
 /// What the top bar needs.
 #[derive(Properties, PartialEq)]
 pub struct TopBarProps {

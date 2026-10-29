@@ -4,7 +4,8 @@
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
-use web_sys::{Storage, Window};
+use web_sys::{Event, HtmlInputElement, Storage, Window};
+use yew::TargetCast;
 
 use crate::route::Route;
 use crate::theme::Theme;
@@ -29,6 +30,39 @@ pub fn go(route: Route) {
     if let Some(window) = web_sys::window() {
         let _ = window.location().set_hash(&route.href());
     }
+}
+
+/// The file picked in a file input's change event, if any. The input is cleared so picking
+/// the same file again still fires the event.
+pub fn chosen_file(event: &Event) -> Option<gloo_file::File> {
+    let input: HtmlInputElement = event.target_unchecked_into();
+    let file = input.files()?.item(0)?;
+    input.set_value("");
+    Some(gloo_file::File::from(file))
+}
+
+/// `len` random bytes from the browser's secure random source, or why there are none.
+pub fn random_bytes(len: usize) -> Result<Vec<u8>, String> {
+    let crypto = web_sys::window()
+        .ok_or("no window")?
+        .crypto()
+        .map_err(|_| "no crypto source")?;
+    let mut bytes = vec![0; len];
+    crypto
+        .get_random_values_with_u8_array(&mut bytes)
+        .map_err(|_| "the browser refused")?;
+    Ok(bytes)
+}
+
+/// Puts `text` on the clipboard, or says why it could not. Browsers only allow this from a
+/// click on a page served over https or from localhost.
+pub async fn copy_text(text: &str) -> Result<(), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let promise = window.navigator().clipboard().write_text(text);
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map(|_| ())
+        .map_err(|_| "the browser blocked the clipboard".to_string())
 }
 
 /// The saved theme, or light if nothing usable is saved.

@@ -2,6 +2,8 @@
 
 mod browser;
 mod components;
+mod explore;
+mod explore_page;
 mod library_form;
 mod library_page;
 mod route;
@@ -13,6 +15,8 @@ use yew::prelude::*;
 
 use browser::HashListener;
 use components::{Home, Placeholder, TopBar};
+use explore::{ExploreAction, Slot};
+use explore_page::ExplorePage;
 use library_page::LibraryPage;
 use route::Route;
 
@@ -21,6 +25,7 @@ fn App() -> Html {
     let route = use_state(browser::current_route);
     let theme = use_state(browser::load_theme);
     let library = use_state(|| LibraryChoice::new(LibraryConfig::default(), None));
+    let explore = use_reducer(Slot::default);
 
     // Follow the address bar. The listener stops when the app goes away.
     {
@@ -41,7 +46,13 @@ fn App() -> Html {
 
     let on_start = {
         let library = library.clone();
+        let explore = explore.clone();
         Callback::from(move |chosen: LibraryChoice| {
+            let seed = browser::random_bytes(chosen.size().page_len());
+            explore.dispatch(ExploreAction::Open {
+                library: chosen.clone(),
+                seed,
+            });
             library.set(chosen);
             browser::go(Route::Explore);
         })
@@ -53,6 +64,9 @@ fn App() -> Html {
             let page = match current {
                 Route::Library => html! {
                     <LibraryPage library={(*library).clone()} {on_start} />
+                },
+                Route::Explore => html! {
+                    <ExplorePage explore={explore.clone()} library={(*library).clone()} />
                 },
                 _ => html! { <Placeholder route={current} /> },
             };
