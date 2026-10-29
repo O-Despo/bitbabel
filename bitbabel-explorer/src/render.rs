@@ -19,6 +19,9 @@ pub enum View {
 }
 
 impl View {
+    /// Every view, in the order `next` cycles through them.
+    pub const ALL: [View; 4] = [View::Text, View::Hex, View::Base64, View::Utf8];
+
     /// The next view in the cycle: text, hex, base64, utf8, then text again.
     pub const fn next(self) -> Self {
         match self {
@@ -149,6 +152,14 @@ mod test {
             seen,
             [View::Text, View::Hex, View::Base64, View::Utf8, View::Text]
         );
+    }
+
+    #[test]
+    fn all_lists_the_views_in_cycle_order() {
+        for pair in View::ALL.windows(2) {
+            assert_eq!(pair[0].next(), pair[1]);
+        }
+        assert_eq!(View::ALL[3].next(), View::ALL[0]);
     }
 
     #[test]
