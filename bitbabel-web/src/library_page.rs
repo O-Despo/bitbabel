@@ -3,9 +3,9 @@
 use bitbabel_core::LibraryConfig;
 use bitbabel_explorer::{LibraryChoice, SIZES};
 use gloo_file::callbacks::{FileReader, read_as_bytes};
-use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
+use crate::browser;
 use crate::components::{Action, Choice};
 use crate::library_form::{FormAction, KeySource, LibraryForm};
 
@@ -68,13 +68,9 @@ pub fn LibraryPage(props: &LibraryPageProps) -> Html {
         let form = form.clone();
         let reader = reader.clone();
         Callback::from(move |event: Event| {
-            let input: HtmlInputElement = event.target_unchecked_into();
-            let Some(file) = input.files().and_then(|files| files.item(0)) else {
+            let Some(file) = browser::chosen_file(&event) else {
                 return;
             };
-            // Clear the input so choosing the same file again still fires this.
-            input.set_value("");
-            let file = gloo_file::File::from(file);
             let name = file.name();
             let form = form.clone();
             let task = read_as_bytes(&file, move |bytes| {
