@@ -4,6 +4,7 @@ members = [
     "bitbabel-file",
     "bitbabel-explorer",
     "bitbabel-tui",
+    "bitbabel-web",
     "bitbabel-cli",
 ]
 resolver = "3"
