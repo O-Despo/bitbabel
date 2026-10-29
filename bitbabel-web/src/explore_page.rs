@@ -34,6 +34,17 @@ fn segments_html(segments: impl IntoIterator<Item = Segment>) -> Html {
         .collect()
 }
 
+/// A run of page text, with the marked part inverted.
+fn segments_html(segments: impl IntoIterator<Item = Segment>) -> Html {
+    segments
+        .into_iter()
+        .map(|segment| {
+            let class = segment.highlighted.then_some("hit");
+            html! { <span {class}>{ segment.text }</span> }
+        })
+        .collect()
+}
+
 /// The "go to an index" popup while it is open: what is typed, and why it was refused.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct GoTo {
